@@ -13,7 +13,7 @@ import { CoursePicker } from './CoursePicker';
 import { dayLabel } from '@/features/games/label';
 import { api } from '@/lib/api';
 import { go, useOnResume } from '@/lib/nav';
-import { courseByCode, MAX_DAYS, NYC_COURSES, nyToday } from '@/lib/nyc';
+import { courseByCode, MAX_DAYS, nyToday } from '@/lib/nyc';
 import { filterTimes, fmtMinutes, toMinutes } from '@/lib/teetimes';
 import { cn } from '@/lib/utils';
 import { LoadError } from '@/components/data-status';
@@ -195,8 +195,6 @@ function SearchScreen({ alerts }: { alerts: number }) {
   const [timeOpen, setTimeOpen] = useState(false);
   useHomeCourse();
   const days = strip();
-  const liveCourses = NYC_COURSES.filter((c) => c.tenant);
-  const allOn = liveCourses.every((c) => form.codes.includes(c.code));
 
   const pickDate = (d: string) =>
     setForm({ dates: form.dates.includes(d) ? form.dates.filter((x) => x !== d) : [...form.dates, d].sort() });
@@ -265,19 +263,7 @@ function SearchScreen({ alerts }: { alerts: number }) {
           <Button variant="ghost" className="min-h-11 px-1 text-primary" onClick={() => setTimeOpen(true)}><Clock />Choose exact hours · {windowName(form.window)}</Button>
         </section>
 
-        <section className="space-y-2">
-          <Heading
-            aside={(
-              <Button variant="ghost" size="sm" className="-mr-2 min-h-11 text-primary" onClick={() => setForm({ codes: allOn ? [] : liveCourses.map((c) => c.code) })}>
-                {allOn ? 'Clear' : 'All'}
-              </Button>
-            )}
-          >
-            Where
-          </Heading>
-          {form.codes.length > 0 && <p className="text-sm text-muted-foreground">{form.codes.length <= 2 ? form.codes.map((c) => courseByCode(c)?.name ?? c).join(', ') : `${form.codes.length} courses`} selected</p>}
-          <CoursePicker selected={form.codes} onToggle={(code) => setForm({ codes: toggle(form.codes, code) })} />
-        </section>
+        <CoursePicker selected={form.codes} onChange={(codes) => setForm({ codes })} />
 
         <label className="flex min-h-12 items-center justify-between gap-3 rounded-2xl border bg-card px-4">
           <span className="text-sm font-medium">18 holes only</span>

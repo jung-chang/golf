@@ -70,7 +70,8 @@ Alert checks run from the hourly cron at 7am, 12pm and 7pm New York time.
 ## Shot tracking (You → My golf)
 
 - **Find a time:** choose up to three dates, minimum available spots, time of day,
-  and courses. Search courses by name or borough; star favorites on this device.
+  and courses. Pick course tiles in four borough panels around Manhattan, or
+  open course search to find a course by name, code, or borough.
   Results use one date at a time, with full course names, holes, availability and
   starting prices when supplied. Search and filter state survives reloading this
   tab or returning from TeeItUp; availability is refreshed when the app resumes.
