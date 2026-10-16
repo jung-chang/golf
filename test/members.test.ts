@@ -52,11 +52,11 @@ describe('members', () => {
 
   it('updates only the provided fields with bound values', async () => {
     const db = fakeDb([row('me@x.com', { name: 'Kev' })]);
-    const res = await app('me@x.com', db)('/me', json({ name: 'Kevin', notifyGames: false }));
+    const res = await app('me@x.com', db)('/me', json({ name: 'Ann', notifyGames: false }));
     expect(res.status).toBe(200);
     expect(db.updates).toHaveLength(1);
     expect(db.updates[0].sql).toBe('UPDATE members SET name = ?, notify_games = ? WHERE email = ?');
-    expect(db.updates[0].binds).toEqual(['Kevin', 0, 'me@x.com']);
+    expect(db.updates[0].binds).toEqual(['Ann', 0, 'me@x.com']);
   });
 
   it('rejects unknown course codes and bad bodies with 400', async () => {

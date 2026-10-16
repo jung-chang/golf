@@ -1,0 +1,7 @@
+# Copy to .dev.vars (gitignored) for local dev. Never commit real values.
+# Who you are locally (only honoured on localhost).
+DEV_EMAIL=you@example.com
+# Web push keys: `pnpm exec pushforge vapid`. The private key is the JWK JSON on one line.
+VAPID_PUBLIC_KEY=<your-public-key>
+VAPID_PRIVATE_JWK=<your-private-jwk-json>
+VAPID_CONTACT=mailto:you@example.com

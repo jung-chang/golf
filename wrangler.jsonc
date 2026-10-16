@@ -3,23 +3,21 @@
   "name": "golf",
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-01",
+  // Nothing group-specific lives here (this repo is public). Your domain is passed at deploy time
+  // (`wrangler deploy --domain <yours>`); TEAM_DOMAIN and POLICY_AUD are secrets. See README → Self-host.
+  // workers.dev and preview URLs would skip the Access sign-in, so they stay off.
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
   // Hourly; the code decides by New York time (each alert's frequency, reminders at 7am), so DST needs no second schedule.
   "triggers": { "crons": ["0 * * * *"] },
-  "vars": {
-    // Set these after creating the Access application (Zero Trust → Access → Applications).
-    "TEAM_DOMAIN": "",
-    "POLICY_AUD": ""
-  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "golf",
-      // Replace with the id printed by `pnpm wrangler d1 create golf` before deploying.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_name": "golf", // found by name, so no id here (`pnpm wrangler d1 create golf` once)
       "migrations_dir": "migrations"
     }
   ]

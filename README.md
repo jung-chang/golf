@@ -1,6 +1,6 @@
 # Tee Times
 
-A private, mobile-first app for our golf group: live NYC public-course tee
+A private, mobile-first app for a golf group: live NYC public-course tee
 times, propose one to the group, see who's in, and get alerts when new times
 open. Shot tracking (GPS yardages, rounds, progress) is built in but hidden at
 `#golf` for now. React + Vite + shadcn/ui, one Cloudflare Worker (static assets
@@ -16,29 +16,46 @@ pnpm test               # vitest
 pnpm typecheck
 ```
 
-`.dev.vars` (gitignored) sets `DEV_EMAIL` (who you are locally, localhost only)
-and local VAPID keys for push. Generate keys with `pnpm exec pushforge vapid`.
+Copy `.dev.vars.example` to `.dev.vars` (gitignored): `DEV_EMAIL` is who you
+are locally (localhost only), plus local VAPID keys for push
+(`pnpm exec pushforge vapid`).
 
-## Deploy (Cloudflare)
+## Self-host it for your group (Cloudflare)
 
-```sh
-pnpm wrangler login
-pnpm wrangler d1 create golf      # paste the printed database_id into wrangler.jsonc
-pnpm db:migrate                   # create tables in the remote D1
-pnpm exec pushforge vapid         # then:
-pnpm wrangler secret put VAPID_PUBLIC_KEY
-pnpm wrangler secret put VAPID_PRIVATE_JWK   # the JWK JSON on one line
-pnpm wrangler secret put VAPID_CONTACT       # mailto:you@example.com
-pnpm deploy
-```
+Each group runs its own copy on its own Cloudflare account and domain. This repo
+holds no group-specific values: your domain, Access settings and keys live in
+Cloudflare, never in git. Free plans cover a group (Workers, D1, Zero Trust up to
+50 people).
 
-Then **Cloudflare Access** (Zero Trust → Access → Applications → Add →
-Self-hosted): the Worker's hostname, with a policy allowing the group's emails.
-Turn off the `*.workers.dev` URL (Worker → Settings → Domains). Copy the
-application's **AUD tag** and your team domain (`<team>.cloudflareaccess.com`)
-into `POLICY_AUD` and `TEAM_DOMAIN` in `wrangler.jsonc`, and deploy again. The
-Worker checks the Access token on every API call; without those two values it
-rejects everything.
+1. **Domain.** Add it to Cloudflare (or buy it there) and wait until it's Active.
+2. **Database.** `pnpm wrangler login`, then `pnpm wrangler d1 create golf`.
+   (No id to paste: the config finds the database by name.)
+3. **Sign-in (Zero Trust → Access → Applications).**
+   - Self-hosted app for `<your-domain>`, session 1 month, policy **Allow** →
+     **Emails** = your group.
+   - A second self-hosted app with action **Bypass** → **Everyone** for
+     `<your-domain>/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png` and
+     `/apple-touch-icon.png`. Browsers fetch these without the sign-in cookie,
+     and installing the app needs them.
+4. **Secrets** (`pnpm wrangler secret put <NAME>`):
+   - `TEAM_DOMAIN`: `<team>.cloudflareaccess.com`
+   - `POLICY_AUD`: the Access app's AUD tag
+   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_JWK`, `VAPID_CONTACT`: from
+     `pnpm exec pushforge vapid` (new keys, not your local ones); contact is
+     `mailto:<you>`
+5. **Deploy.** Either by hand:
+   ```sh
+   pnpm build && pnpm wrangler d1 migrations apply golf --remote && pnpm wrangler deploy --domain <your-domain>
+   ```
+   or on every push to `main` with Workers Builds (Worker → Settings → Builds →
+   connect your fork). Build command `pnpm build`; deploy command
+   `pnpm wrangler d1 migrations apply golf --remote && pnpm wrangler deploy --domain "$DOMAIN"`;
+   add `DOMAIN` under the build's variables.
+
+The Worker checks the Access token on every API call and rejects everything
+until `TEAM_DOMAIN` and `POLICY_AUD` are set. workers.dev and preview URLs are
+off so nothing skips Access. Keep emails, keys and exports out of your fork
+(see [AGENTS.md](AGENTS.md)).
 
 Adding a golfer = adding their email to the Access policy. They open the site,
 "Add to Home Screen" (needed for notifications on iPhone), and fill in Profile.
