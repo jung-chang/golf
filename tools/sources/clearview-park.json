@@ -1,0 +1,214 @@
+{
+  "id": "clearview-park",
+  "name": "Clearview Park Golf Course",
+  "locality": "Bayside, Queens, NY",
+  "osm": {
+    "course": "way/25163218"
+  },
+  "tees": [
+    {
+      "id": "black",
+      "name": "Black",
+      "color": "#1f1f1f",
+      "rating": 70.2,
+      "slope": 119
+    },
+    {
+      "id": "white",
+      "name": "White",
+      "color": "#f5f5f5",
+      "rating": 69.0,
+      "slope": 116
+    },
+    {
+      "id": "red",
+      "name": "Red",
+      "color": "#d33",
+      "rating": 68.6,
+      "slope": 116
+    }
+  ],
+  "holes": [
+    {
+      "number": 1,
+      "par": 4,
+      "hcp": 9,
+      "yards": {
+        "black": 370,
+        "white": 354,
+        "red": 337
+      }
+    },
+    {
+      "number": 2,
+      "par": 5,
+      "hcp": 5,
+      "yards": {
+        "black": 450,
+        "white": 428,
+        "red": 383
+      }
+    },
+    {
+      "number": 3,
+      "par": 4,
+      "hcp": 13,
+      "yards": {
+        "black": 441,
+        "white": 414,
+        "red": 334
+      }
+    },
+    {
+      "number": 4,
+      "par": 3,
+      "hcp": 15,
+      "yards": {
+        "black": 179,
+        "white": 169,
+        "red": 132
+      }
+    },
+    {
+      "number": 5,
+      "par": 4,
+      "hcp": 3,
+      "yards": {
+        "black": 405,
+        "white": 383,
+        "red": 322
+      }
+    },
+    {
+      "number": 6,
+      "par": 4,
+      "hcp": 1,
+      "yards": {
+        "black": 401,
+        "white": 390,
+        "red": 319
+      }
+    },
+    {
+      "number": 7,
+      "par": 3,
+      "hcp": 17,
+      "yards": {
+        "black": 147,
+        "white": 135,
+        "red": 120
+      }
+    },
+    {
+      "number": 8,
+      "par": 4,
+      "hcp": 11,
+      "yards": {
+        "black": 430,
+        "white": 412,
+        "red": 355
+      }
+    },
+    {
+      "number": 9,
+      "par": 4,
+      "hcp": 7,
+      "yards": {
+        "black": 430,
+        "white": 420,
+        "red": 320
+      }
+    },
+    {
+      "number": 10,
+      "par": 4,
+      "hcp": 8,
+      "yards": {
+        "black": 325,
+        "white": 315,
+        "red": 262
+      }
+    },
+    {
+      "number": 11,
+      "par": 4,
+      "hcp": 6,
+      "yards": {
+        "black": 358,
+        "white": 342,
+        "red": 268
+      }
+    },
+    {
+      "number": 12,
+      "par": 3,
+      "hcp": 18,
+      "yards": {
+        "black": 151,
+        "white": 144,
+        "red": 139
+      }
+    },
+    {
+      "number": 13,
+      "par": 4,
+      "hcp": 14,
+      "yards": {
+        "black": 357,
+        "white": 335,
+        "red": 295
+      }
+    },
+    {
+      "number": 14,
+      "par": 4,
+      "hcp": 2,
+      "yards": {
+        "black": 450,
+        "white": 445,
+        "red": 365
+      }
+    },
+    {
+      "number": 15,
+      "par": 5,
+      "hcp": 4,
+      "yards": {
+        "black": 460,
+        "white": 440,
+        "red": 399
+      }
+    },
+    {
+      "number": 16,
+      "par": 3,
+      "hcp": 16,
+      "yards": {
+        "black": 174,
+        "white": 164,
+        "red": 118
+      }
+    },
+    {
+      "number": 17,
+      "par": 4,
+      "hcp": 10,
+      "yards": {
+        "black": 405,
+        "white": 395,
+        "red": 318
+      }
+    },
+    {
+      "number": 18,
+      "par": 4,
+      "hcp": 12,
+      "yards": {
+        "black": 395,
+        "white": 381,
+        "red": 319
+      }
+    }
+  ],
+  "scorecard": "https://www.golfingrecord.com/golf-scorecard/39474680-ee6e-4163-ab29-66427a1d4777"
+}
