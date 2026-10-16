@@ -1,7 +1,7 @@
 import { NYC_COURSES } from '@/lib/nyc';
 
 const selectClass =
-  'h-11 w-full rounded-md border bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm';
+  'h-12 w-full rounded-xl border bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm';
 
 export function HomeCourseSelect({ id, value, onChange }: { id: string; value: string | null; onChange: (code: string | null) => void }) {
   return (

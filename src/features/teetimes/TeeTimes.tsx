@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { BellPlus, ChevronLeft, Loader2, RefreshCw, User, Users } from 'lucide-react';
+import { Bell, BellPlus, ChevronDown, Clock, Loader2, RefreshCw, SearchX, User, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import { Empty, IconAction, PageHeader } from '@/components/page';
 import { Button } from '@/components/ui/button';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AlertSetupDialog } from '@/features/alerts/AlertSetupDialog';
 import { TimeSheet } from '@/features/games/TimeSheet';
 import { CoursePicker } from './CoursePicker';
@@ -64,7 +68,7 @@ let state: State = {
   loading: false,
   hidden: [],
   on: [],
-  window: [360, 1200],
+  window: [300, 1200],
 };
 const listeners = new Set<() => void>();
 const subscribe = (l: () => void) => {
@@ -171,7 +175,7 @@ const Heading = ({ children, aside }: { children: React.ReactNode; aside?: React
   </div>
 );
 
-function SearchScreen() {
+function SearchScreen({ alerts }: { alerts: number }) {
   const { form, loading } = useStore();
   useHomeCourse();
   const days = strip();
@@ -182,11 +186,15 @@ function SearchScreen() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-5 pb-4">
+      <PageHeader
+        title="Tee times"
+        actions={<IconAction label="Alerts" count={alerts} onClick={() => go('alerts')}><Bell className="size-5" /></IconAction>}
+      />
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-2 pb-4">
         <section className="space-y-2">
-          <Heading aside={<span className="text-xs text-muted-foreground">up to 3</span>}>Dates</Heading>
-          <div className="-mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1">
-            {days.map((d) => {
+          <Heading aside={<span className="text-xs text-muted-foreground">up to 3</span>}>When</Heading>
+          <div className="-mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+            {days.map((d, i) => {
               const on = form.dates.includes(d);
               return (
                 <button
@@ -196,11 +204,11 @@ function SearchScreen() {
                   disabled={!on && form.dates.length >= 3}
                   onClick={() => pickDate(d)}
                   className={cn(
-                    'flex w-14 shrink-0 snap-start flex-col items-center rounded-xl border py-2 text-xs disabled:opacity-40',
+                    'flex w-14 shrink-0 snap-start flex-col items-center rounded-2xl border py-2 text-xs transition-colors active:scale-95 disabled:opacity-40',
                     on ? 'border-primary bg-primary text-primary-foreground' : 'bg-card',
                   )}
                 >
-                  <span>{dow(d)}</span>
+                  <span className={cn(!on && 'text-muted-foreground')}>{i === 0 ? 'Today' : dow(d)}</span>
                   <span className="text-lg font-semibold">{dom(d)}</span>
                 </button>
               );
@@ -210,47 +218,42 @@ function SearchScreen() {
 
         <section className="space-y-2">
           <Heading>Golfers</Heading>
-          <div className="grid grid-cols-5 gap-2" role="radiogroup" aria-label="Golfers">
-            {[0, 1, 2, 3, 4].map((n) => {
-              const on = n === 0 ? !form.golfers.length : form.golfers[0] === n;
-              return (
-                <Button
-                  key={n}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  variant={on ? 'default' : 'outline'}
-                  className="h-11"
-                  onClick={() => setForm({ golfers: n ? [n] : [] })}
-                >
-                  {n || 'Any'}
-                </Button>
-              );
-            })}
-          </div>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            className="w-full"
+            value={String(form.golfers[0] ?? 0)}
+            onValueChange={(v) => v && setForm({ golfers: v === '0' ? [] : [Number(v)] })}
+          >
+            {[0, 1, 2, 3, 4].map((n) => (
+              <ToggleGroupItem key={n} value={String(n)} className="h-11 flex-1 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+                {n || 'Any'}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </section>
 
         <section className="space-y-2">
           <Heading
             aside={(
-              <Button variant="ghost" size="sm" className="min-h-11 text-primary" onClick={() => setForm({ codes: allOn ? [] : NYC_COURSES.map((c) => c.code) })}>
+              <Button variant="ghost" size="sm" className="-mr-2 min-h-11 text-primary" onClick={() => setForm({ codes: allOn ? [] : NYC_COURSES.map((c) => c.code) })}>
                 {allOn ? 'Clear' : 'All'}
               </Button>
             )}
           >
-            Courses
+            Where
           </Heading>
           <CoursePicker selected={form.codes} onToggle={(code) => setForm({ codes: toggle(form.codes, code) })} />
         </section>
 
-        <label className="flex min-h-11 items-center justify-between gap-3">
-          <span className="text-sm font-semibold">18 holes only</span>
+        <label className="flex min-h-12 items-center justify-between gap-3 rounded-2xl border bg-card px-4">
+          <span className="text-sm font-medium">18 holes only</span>
           <Switch checked={form.holes18} onCheckedChange={(v) => setForm({ holes18: v })} />
         </label>
       </div>
 
-      <div className="shrink-0 border-t bg-background px-4 py-3">
-        <Button className="h-12 w-full text-base" disabled={!form.dates.length || !form.codes.length || loading} onClick={find}>
+      <div className="shrink-0 px-4 pt-2 pb-3">
+        <Button className="h-12 w-full rounded-2xl text-base shadow-sm" disabled={!form.dates.length || !form.codes.length || loading} onClick={find}>
           {loading && <Loader2 className="animate-spin" />}
           {loading ? 'Searching…' : !form.dates.length ? 'Pick a date' : !form.codes.length ? 'Pick a course' : 'Find tee times'}
         </Button>
@@ -261,7 +264,7 @@ function SearchScreen() {
 
 function Row({ t, showCode, inGame, onOpen }: { t: TeeTime; showCode: boolean; inGame: boolean; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border bg-card px-3 text-left text-sm active:bg-accent">
+    <button type="button" onClick={onOpen} className="flex min-h-12 w-full items-center gap-1.5 rounded-xl border bg-card px-3 text-left text-sm transition-colors active:scale-[0.98] active:bg-accent">
       <span className="font-semibold tabular-nums">{short(t.time)}</span>
       {showCode && <span className="text-xs text-muted-foreground">{t.code}</span>}
       {inGame && <Users className="size-3.5 text-primary" aria-label="Already in a group game" />}
@@ -275,6 +278,7 @@ function Row({ t, showCode, inGame, onOpen }: { t: TeeTime; showCode: boolean; i
 function Results() {
   const { last, response, hidden, on, window: win, loading } = useStore();
   const [alertOpen, setAlertOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
   const [picked, setPicked] = useState<TeeTime | null>(null);
   // Times the group already has in a game, so nobody proposes or books them twice.
   const [grouped, setGrouped] = useState<Set<string>>(new Set());
@@ -297,12 +301,12 @@ function Results() {
 
   if (loading && !response && last) {
     return (
-      <div className="space-y-3 px-4 py-4" aria-busy="true" aria-label="Loading tee times">
-        <div className="h-11 animate-pulse rounded-xl bg-muted" />
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${last.dates.length}, minmax(0, 1fr))` }}>
+      <div className="flex h-full flex-col" aria-busy="true" aria-label="Loading tee times">
+        <PageHeader back={() => go('')} title="Searching…" sub="Live from TeeItUp" />
+        <div className="grid gap-2 px-4 pt-2" style={{ gridTemplateColumns: `repeat(${last.dates.length}, minmax(0, 1fr))` }}>
           {last.dates.map((d) => (
             <div key={d} className="space-y-1.5">
-              {Array.from({ length: 9 }, (_, i) => <div key={i} className="h-11 animate-pulse rounded-xl bg-muted" />)}
+              {Array.from({ length: 9 }, (_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)}
             </div>
           ))}
         </div>
@@ -325,63 +329,68 @@ function Results() {
   const manyDates = last.dates.length > 1;
   const manyCourses = last.codes.length > 1;
   const title = `${last.dates.map((d) => (manyDates ? `${dow(d)} ${dom(d)}` : dayLabel(d))).join(', ')} · ${last.codes.length > 3 ? `${last.codes.length} courses` : last.codes.join(', ')}`;
+  const chip = 'flex h-9 shrink-0 items-center gap-1 rounded-full border px-3 text-sm font-medium transition-colors';
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 space-y-3 px-2 pt-2 pb-3">
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-11" aria-label="Edit search" onClick={() => go('')}><ChevronLeft /></Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold">{title}</h1>
-            <p className="text-xs text-muted-foreground">
-              {shown.length} {shown.length === 1 ? 'time' : 'times'}{mins !== null && ` · updated ${mins === 0 ? 'just now' : `${mins} min ago`}`}
-            </p>
-          </div>
-          <Button variant="ghost" size="icon" className="size-11" aria-label="Set alert" disabled={!canAlert} onClick={() => setAlertOpen(true)}><BellPlus /></Button>
-          <Button variant="ghost" size="icon" className="size-11" aria-label="Refresh" disabled={loading} onClick={refresh}>
-            <RefreshCw className={cn(loading && 'animate-spin')} />
-          </Button>
-        </div>
+      <PageHeader
+        back={() => go('')}
+        title={title}
+        sub={`${shown.length} ${shown.length === 1 ? 'time' : 'times'}${mins !== null ? ` · updated ${mins === 0 ? 'just now' : `${mins} min ago`}` : ''}`}
+        actions={(
+          <>
+            <IconAction label="Alert me about new times" disabled={!canAlert} onClick={() => setAlertOpen(true)}><BellPlus className="size-5" /></IconAction>
+            <IconAction label="Refresh" disabled={loading} onClick={refresh}><RefreshCw className={cn('size-5', loading && 'animate-spin')} /></IconAction>
+          </>
+        )}
+      />
 
-        <div className="space-y-3 px-2">
-          {(failed.length > 0 || last.codes.includes('MOS')) && (
-            <p className="rounded-xl bg-secondary px-3 py-2 text-xs text-secondary-foreground">
-              {failed.length > 0 && `Couldn't load ${failed.join(', ')}. `}
-              {last.codes.includes('MOS') && "Mosholu isn't on TeeItUp, so no live times."}
-            </p>
-          )}
-
-          {manyDates && (
-            <div className="flex gap-2">
-              {last.dates.map((d) => {
-                const isOn = !hidden.includes(d);
-                return (
-                  <button
-                    key={d}
-                    type="button"
-                    aria-pressed={isOn}
-                    onClick={() => update({ hidden: isOn ? [...hidden, d] : hidden.filter((x) => x !== d) })}
-                    className={cn('min-h-11 flex-1 rounded-xl border px-1 text-xs font-semibold', isOn ? 'border-primary bg-card' : 'bg-muted text-muted-foreground opacity-60')}
-                  >
-                    {dow(d)} {dom(d)} <span className="font-normal text-muted-foreground">· {all.filter((t) => t.date === d).length}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <Slider min={300} max={1200} step={15} minStepsBetweenThumbs={0} value={win} onValueChange={([a, b]) => update({ window: [a, b] })} aria-label="Time window" />
-            <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-              <span>{fmtMinutes(win[0])}</span>
-              <span>{fmtMinutes(win[1])}</span>
-            </div>
-          </div>
-        </div>
+      {/* Filters: time of day, then each course on or off. */}
+      <div className="flex shrink-0 gap-2 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
+        <button type="button" onClick={() => setTimeOpen(true)} className={cn(chip, 'border-primary bg-accent text-accent-foreground')}>
+          <Clock className="size-3.5" /> {windowName(win)} <ChevronDown className="size-3.5" />
+        </button>
+        {manyCourses && last.codes.map((code) => {
+          const isOn = on.includes(code);
+          return (
+            <button key={code} type="button" aria-pressed={isOn} onClick={() => update({ on: toggle(on, code) })}
+              className={cn(chip, isOn ? 'border-primary bg-primary text-primary-foreground' : 'bg-card text-muted-foreground')}>
+              {code}
+            </button>
+          );
+        })}
       </div>
 
+      {(failed.length > 0 || last.codes.includes('MOS')) && (
+        <p className="mx-4 mb-3 rounded-xl bg-secondary px-3 py-2 text-xs text-secondary-foreground">
+          {failed.length > 0 && `Couldn't load ${failed.join(', ')}. `}
+          {last.codes.includes('MOS') && "Mosholu isn't on TeeItUp, so no live times."}
+        </p>
+      )}
+
+      {manyDates && (
+        <div className="grid shrink-0 gap-2 px-4 pb-2" style={{ gridTemplateColumns: `repeat(${last.dates.length}, minmax(0, 1fr))` }}>
+          {last.dates.map((d) => {
+            const isOn = !hidden.includes(d);
+            return (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={isOn}
+                onClick={() => update({ hidden: isOn ? [...hidden, d] : hidden.filter((x) => x !== d) })}
+                className={cn('min-h-9 rounded-full px-1 text-xs font-semibold', isOn ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}
+              >
+                {dow(d)} {dom(d)} <span className="font-normal opacity-70">· {all.filter((t) => t.date === d).length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {shown.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground">No tee times match. Widen the window or add courses.</p>
+        <Empty icon={<SearchX />} title="No tee times match" action={<Button variant="outline" className="min-h-11 rounded-full" onClick={() => setTimeOpen(true)}>Change time of day</Button>}>
+          Try a wider time, more courses, or set an alert for when one opens.
+        </Empty>
       ) : (
         <div
           className="grid min-h-0 flex-1 gap-2 px-4 pb-3"
@@ -397,27 +406,64 @@ function Results() {
         </div>
       )}
 
-      {manyCourses && (
-        <div className="flex shrink-0 flex-wrap justify-center gap-2 border-t bg-card px-4 py-3">
-          {last.codes.map((code) => {
-            const isOn = on.includes(code);
-            return (
-              <Button key={code} variant={isOn ? 'default' : 'outline'} aria-pressed={isOn} className="h-11 min-w-14" onClick={() => update({ on: toggle(on, code) })}>
-                {code}
-              </Button>
-            );
-          })}
-        </div>
-      )}
-
+      <TimeOfDay open={timeOpen} onOpenChange={setTimeOpen} value={win} onChange={(w) => update({ window: w })} count={(w) => all.filter((t) => visible.includes(t.date) && toMinutes(t.time) >= w[0] && toMinutes(t.time) <= w[1]).length} />
       <TimeSheet time={picked} onClose={() => setPicked(null)} />
       <AlertSetupDialog open={alertOpen} onOpenChange={setAlertOpen} mode="create" criteria={criteria} visible={shown} />
     </div>
   );
 }
 
-export function TeeTimes({ view }: { view: 'search' | 'results' }) {
+const PRESETS: { label: string; window: [number, number] }[] = [
+  { label: 'Any time', window: [300, 1200] },
+  { label: 'Early, before 9am', window: [300, 540] },
+  { label: 'Morning, before noon', window: [300, 720] },
+  { label: 'Afternoon, noon on', window: [720, 1200] },
+  { label: 'Twilight, 3pm on', window: [900, 1200] },
+];
+const same = (a: [number, number], b: [number, number]) => a[0] === b[0] && a[1] === b[1];
+/** The chip's label: a preset's short name ("Morning"), or the exact window. */
+const windowName = (w: [number, number]) =>
+  PRESETS.find((p) => same(p.window, w))?.label.split(',')[0] ?? `${fmtMinutes(w[0])}–${fmtMinutes(w[1])}`;
+
+/** Time of day: a few common picks, or drag for an exact window. Results update as you go. */
+function TimeOfDay({ open, onOpenChange, value, onChange, count }: {
+  open: boolean; onOpenChange: (o: boolean) => void; value: [number, number];
+  onChange: (w: [number, number]) => void; count: (w: [number, number]) => number;
+}) {
+  return (
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>Time of day</DrawerTitle>
+          <DrawerDescription>{fmtMinutes(value[0])} to {fmtMinutes(value[1])} · {count(value)} times</DrawerDescription>
+        </DrawerHeader>
+        <div className="space-y-5 px-5 pt-2">
+          <div className="flex flex-wrap gap-2">
+            {PRESETS.map((p) => (
+              <button key={p.label} type="button" aria-pressed={same(p.window, value)} onClick={() => onChange(p.window)}
+                className={cn('min-h-10 rounded-full border px-3.5 text-sm', same(p.window, value) ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <Slider min={300} max={1200} step={15} minStepsBetweenThumbs={0} value={value} onValueChange={([a, b]) => onChange([a, b])} aria-label="Time window" />
+            <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+              <span>{fmtMinutes(300)}</span>
+              <span>{fmtMinutes(1200)}</span>
+            </div>
+          </div>
+        </div>
+        <DrawerFooter>
+          <Button className="h-12 rounded-2xl text-base" onClick={() => onOpenChange(false)}>Show {count(value)} times</Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+export function TeeTimes({ view, alerts }: { view: 'search' | 'results'; alerts: number }) {
   // Results live in memory; after a reload (say the phone closed the app while you were on TeeItUp) start from the form.
   const { last } = useStore();
-  return view === 'results' && last ? <Results /> : <SearchScreen />;
+  return view === 'results' && last ? <Results /> : <SearchScreen alerts={alerts} />;
 }

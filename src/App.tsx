@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Bell, CalendarSearch, ChevronRight, Flag, User, Users } from 'lucide-react';
+import { CalendarSearch, ChevronRight, Flag, UserRound, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
@@ -16,14 +16,15 @@ import { fmtToPar, playedHoles, toPar } from '@/lib/round';
 import { load as loadRounds, useStore } from '@/lib/store';
 import { fmtMinutes, toMinutes } from '@/lib/teetimes';
 
-// Shot tracking is hidden for now (#golf); it loads only when opened.
-const GolfApp = lazy(() => import('./golf/GolfApp'));
+// Shot tracking loads only when opened: My golf inside the app, Play full screen.
+const Golf = lazy(() => import('./golf/GolfApp'));
+const PlayScreen = lazy(() => import('./golf/GolfApp').then((m) => ({ default: m.PlayScreen })));
 
+// Three places: find a time (alerts are saved searches, so they live here), the group's games, and you.
 const TABS = [
-  { id: '', label: 'Tee times', icon: CalendarSearch },
-  { id: 'games', label: 'Games', icon: Users },
-  { id: 'alerts', label: 'Alerts', icon: Bell },
-  { id: 'profile', label: 'Profile', icon: User },
+  { id: '', label: 'Tee times', icon: CalendarSearch, pages: ['', 'results', 'alerts'] },
+  { id: 'games', label: 'Games', icon: Users, pages: ['games'] },
+  { id: 'profile', label: 'You', icon: UserRound, pages: ['profile', 'golf'] },
 ] as const;
 
 type Badges = { games: number; alerts: number; today: { id: string; code: string; teetime: string } | null };
@@ -44,23 +45,23 @@ function useBadges(page: string) {
 const nyTime = (iso: string) => fmtMinutes(toMinutes(new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' })));
 
 /** One line above every screen on round day: resume the round in progress, or go to today's game. */
-function UpNext({ today, onGames }: { today: Badges['today']; onGames: boolean }) {
+function UpNext({ today, page }: { today: Badges['today']; page: string }) {
   useEffect(() => { void loadRounds(); }, []);
   const round = useStore((s) => (s.activeId ? s.rounds[s.activeId] : undefined));
-  const cls = 'flex min-h-11 items-center gap-2 bg-primary px-4 text-sm font-medium text-primary-foreground';
-  if (round && !round.done) {
+  const cls = 'mx-3 mt-2 flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-medium shadow-sm active:opacity-90';
+  if (round && !round.done && page !== 'golf') { // My golf leads with the round in progress
     const thru = playedHoles(round).length;
     return (
-      <a href="#golf/play" className={cls}>
+      <a href="#golf/play" className={cn(cls, 'bg-orange text-orange-foreground')}>
         <Flag className="size-4" /> Round in progress · {round.courseName.replace(/ Golf Course$/, '')}
         {thru > 0 && ` · ${fmtToPar(toPar(round))} thru ${thru}`}
         <span className="ml-auto flex items-center">Resume <ChevronRight className="size-4" /></span>
       </a>
     );
   }
-  if (!today || onGames) return null; // the Games screen already leads with today's game
+  if (!today || page === 'games') return null; // the Games screen already leads with today's game
   return (
-    <a href={`#games/${today.id}`} className={cls}>
+    <a href={`#games/${today.id}`} className={cn(cls, 'bg-primary text-primary-foreground')}>
       <Flag className="size-4" /> Today · {today.code} {nyTime(today.teetime)} · {countdown(today.teetime)}
       <ChevronRight className="ml-auto size-4" />
     </a>
@@ -82,18 +83,19 @@ export function App() {
   const badges = useBadges(page);
   const signedOut = useSignedOut();
 
-  if (page === 'golf') {
-    return <Suspense><GolfApp page={rest[0]} arg={rest[1]} /></Suspense>;
+  if (page === 'golf' && rest[0] === 'play') {
+    return <><Suspense><PlayScreen /></Suspense><Toaster position="top-center" /></>;
   }
 
   let screen;
-  if (page === 'games') screen = <Games focusId={rest[0]} />;
+  if (page === 'golf') screen = <Suspense><Golf page={rest[0]} arg={rest[1]} /></Suspense>;
+  else if (page === 'games') screen = <Games focusId={rest[0]} />;
   else if (page === 'alerts') screen = <Alerts focusId={rest[0]} />;
   else if (page === 'profile') screen = <Profile />;
-  else screen = <TeeTimes view={page === 'results' ? 'results' : 'search'} />;
+  else screen = <TeeTimes view={page === 'results' ? 'results' : 'search'} alerts={badges.alerts} />;
 
-  const current = page === 'results' ? '' : page;
-  const count = (id: string) => (id === 'games' ? badges.games : id === 'alerts' ? badges.alerts : 0);
+  const current = TABS.find((t) => (t.pages as readonly string[]).includes(page))?.id ?? '';
+  const count = (id: string) => (id === 'games' ? badges.games : id === '' ? badges.alerts : 0);
   return (
     <div className="flex h-dvh flex-col">
       {signedOut && (
@@ -103,24 +105,23 @@ export function App() {
           <Button asChild size="sm" className="min-h-11"><a href="/api/login">Sign in again</a></Button>
         </div>
       )}
-      {!signedOut && <div className="pt-[env(safe-area-inset-top)]"><UpNext today={badges.today} onGames={page === 'games'} /></div>}
+      {!signedOut && <div className="pt-[env(safe-area-inset-top)]"><UpNext today={badges.today} page={page} /></div>}
       <main className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto h-full max-w-lg">{screen}</div></main>
-      <nav className="flex border-t bg-card pb-[env(safe-area-inset-bottom)]">
+      <nav className="flex border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         {TABS.map(({ id, label, icon: Icon }) => {
           const n = count(id);
+          const on = current === id;
           return (
             <a
               key={id}
               href={`#${id}`}
-              className={cn(
-                'flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-medium text-muted-foreground',
-                current === id && 'text-primary',
-              )}
+              aria-current={on ? 'page' : undefined}
+              className={cn('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[0.6875rem] font-medium text-muted-foreground', on && 'text-foreground')}
             >
-              <span className="relative">
-                <Icon className="size-5" />
+              <span className={cn('relative grid h-8 w-14 place-content-center rounded-full transition-colors', on && 'bg-accent text-accent-foreground')}>
+                <Icon className="size-5" strokeWidth={on ? 2.25 : 1.75} />
                 {n > 0 && (
-                  <span className="absolute -top-1.5 -right-2.5 min-w-4 rounded-full bg-flag px-1 text-center text-[0.625rem] leading-4 font-semibold text-white tabular-nums">
+                  <span className="absolute -top-0.5 right-2 min-w-4 rounded-full bg-orange px-1 text-center text-[0.625rem] leading-4 font-bold text-orange-foreground tabular-nums ring-2 ring-background">
                     {n > 9 ? '9+' : n}
                   </span>
                 )}

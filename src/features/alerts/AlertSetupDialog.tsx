@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Toggle } from '@/components/ui/toggle';
@@ -103,18 +103,19 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
   const canSave = mode === 'create' || (draft.dates.length > 0 && draft.codes.length > 0);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{mode === 'edit' ? 'Edit alert' : 'Set an alert'}</DialogTitle>
-          <DialogDescription>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{mode === 'edit' ? 'Edit alert' : 'Alert me about new times'}</DrawerTitle>
+          <DrawerDescription>
             {mode === 'edit'
               ? 'Change what this alert watches for.'
               // Everything showing now counts as seen: only times that open up later alert you.
               : `${visible.length ? `${visible.length} ${visible.length === 1 ? 'time matches' : 'times match'} now. ` : ''}You'll hear only about new ones.`}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pt-1 pb-2">
         {mode === 'create' ? (
           <CriteriaSummary criteria={criteria} />
         ) : (
@@ -210,7 +211,7 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
           <Label htmlFor="alert-every">Check</Label>
           <select
             id="alert-every"
-            className="h-11 w-full rounded-md border bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
+            className="h-12 w-full rounded-xl border bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
             value={every}
             onChange={(e) => setEvery(Number(e.target.value) as Alert['every'])}
           >
@@ -236,20 +237,22 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
           </section>
         )}
 
-        <DialogFooter className="sticky bottom-0 gap-2 bg-background pt-2 sm:gap-2">
+        </div>
+
+        <DrawerFooter className="flex-row border-t">
           {mode === 'create' ? (
             <>
-              <Button variant="outline" className="min-h-11" onClick={() => onOpenChange(false)} disabled={busy}>Back to results</Button>
-              <Button className="min-h-11" onClick={createSave} disabled={busy}>Set alert</Button>
+              <Button variant="outline" className="h-12 flex-1 rounded-2xl" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+              <Button className="h-12 flex-[2] rounded-2xl text-base" onClick={createSave} disabled={busy}>Set alert</Button>
             </>
           ) : (
             <>
-              <Button variant="outline" className="min-h-11" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-              <Button className="min-h-11" onClick={editSave} disabled={busy || !canSave}>Save</Button>
+              <Button variant="outline" className="h-12 flex-1 rounded-2xl" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+              <Button className="h-12 flex-[2] rounded-2xl text-base" onClick={editSave} disabled={busy || !canSave}>Save</Button>
             </>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }

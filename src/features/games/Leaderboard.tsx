@@ -15,7 +15,7 @@ export function Leaderboard({ scores, me, final }: { scores: GameScore[]; me: st
           <span className="w-5 text-right text-muted-foreground tabular-nums">{place(i) ?? ''}</span>
           <span className="min-w-0 flex-1 truncate font-medium">
             {s.name}
-            {final && place(i) === 1 && s.done && <Trophy className="ml-1.5 inline size-4 text-primary align-text-bottom" aria-label="winner" />}
+            {final && place(i) === 1 && s.done && <Trophy className="ml-1.5 inline size-4 text-orange-strong align-text-bottom" aria-label="winner" />}
           </span>
           <span className="w-10 text-right font-semibold tabular-nums">{s.thru ? fmtToPar(s.toPar) : '–'}</span>
           <span className="w-14 text-right text-xs text-muted-foreground tabular-nums">

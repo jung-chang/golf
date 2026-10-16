@@ -27,13 +27,14 @@ export const EVERY_OPTIONS: { value: Alert['every']; label: string; hint: string
 ];
 export const everyLabel = (every: Alert['every']) => (every === 1 ? 'hourly' : `every ${every}h`);
 
-export const windowLabel = ([start, end]: Criteria['window']) => `${fmtMinutes(start)} to ${fmtMinutes(end)}`;
+export const windowLabel = ([start, end]: Criteria['window']) =>
+  start <= 300 && end >= 1200 ? 'any time' : `${fmtMinutes(start)} to ${fmtMinutes(end)}`;
 
 /** Read-only criteria: dates, golfers, courses, holes and window. Past dates are struck through. */
 export function CriteriaSummary({ criteria, weekdays = [] }: { criteria: Criteria; weekdays?: number[] }) {
   const allPast = !weekdays.length && criteria.dates.every((d) => daysOut(d) < 0);
   return (
-    <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1.5 text-sm">
+    <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 rounded-2xl border bg-card p-4 text-sm">
       <dt className="text-muted-foreground">Dates</dt>
       <dd className="flex flex-wrap items-center gap-x-2">
         {weekdays.length > 0 && repeatLabel(weekdays)}
@@ -60,13 +61,13 @@ export function TimeRow({ t, label, link }: { t: TeeTime; label?: string; link?:
     <>
       <span className="font-medium tabular-nums">{dateLabel(t.date)} {timeLabel(t)}</span>
       <span className="text-muted-foreground">{t.code} · {t.spots} {t.spots === 1 ? 'spot' : 'spots'}</span>
-      {label && <Badge variant={label === 'New' ? 'default' : 'outline'} className="ml-auto">{label}</Badge>}
+      {label && <Badge variant="outline" className={label === 'New' ? 'ml-auto border-transparent bg-orange text-orange-foreground' : 'ml-auto'}>{label}</Badge>}
     </>
   );
   const cls = 'flex min-h-11 items-center gap-2 px-1 text-sm';
   return link
     ? (
-      <button type="button" className={`${cls} w-full rounded-md text-left hover:bg-accent`}
+      <button type="button" className={`${cls} w-full text-left active:bg-accent`}
         onClick={() => openBooking({ code: t.code, date: t.date, time: t.time, teetime: t.teetime, slot: t })}>
         {body}
       </button>

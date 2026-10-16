@@ -17,6 +17,18 @@ export const badgesChanged = () => dispatchEvent(new Event(BADGES_CHANGED));
 
 export const go = (hash: string) => { location.hash = hash; };
 
+/** Open a sheet that has its own URL (#games/<id>), so the phone's back button closes it. */
+export function openSheet(hash: string) {
+  history.pushState({ sheet: true }, '', `#${hash}`);
+  dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
+/** Close it: step back if we opened it, else (arrived by link) go to the screen underneath. */
+export function closeSheet(parent: string) {
+  if ((history.state as { sheet?: boolean } | null)?.sheet) history.back();
+  else go(parent);
+}
+
 /** Calls `fn` whenever the app comes back to the foreground (window focus is unreliable in an iPhone home-screen app). */
 export function useOnResume(fn: () => void) {
   useEffect(() => {

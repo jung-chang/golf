@@ -4,32 +4,37 @@
 /* Dark mode follows the phone's setting. */
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
-/* Golf palette: fairway green, bunker sand, cream paper, pine ink, flag red, sky. */
+/* Golf palette: fairway green (act), marigold #ffb52e (what needs you: counts, "In?", new, live round),
+   warm cream paper, bunker sand, pine ink. Flag red is only for destructive actions. */
 :root {
   --radius: 0.9rem;
-  --background: oklch(0.975 0.012 95);
+  --background: oklch(0.974 0.014 85);
   --foreground: oklch(0.25 0.04 155);
-  --card: oklch(0.995 0.005 95);
+  --card: oklch(0.993 0.006 85);
   --card-foreground: var(--foreground);
   --popover: var(--card);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.52 0.12 150);
-  --primary-foreground: oklch(0.99 0.01 95);
-  --secondary: oklch(0.93 0.035 85);
-  --secondary-foreground: oklch(0.32 0.04 70);
-  --muted: oklch(0.95 0.015 100);
+  --primary: oklch(0.5 0.115 152);
+  --primary-foreground: oklch(0.99 0.01 85);
+  --secondary: oklch(0.935 0.03 78);
+  --secondary-foreground: oklch(0.34 0.045 60);
+  --muted: oklch(0.95 0.014 85);
   --muted-foreground: oklch(0.5 0.03 150);
   --accent: oklch(0.93 0.05 145);
   --accent-foreground: oklch(0.3 0.06 152);
   --destructive: oklch(0.58 0.2 27);
-  --border: oklch(0.89 0.02 110);
-  --input: oklch(0.87 0.025 110);
-  --ring: oklch(0.52 0.12 150);
+  --border: oklch(0.895 0.02 85);
+  --input: oklch(0.87 0.024 85);
+  --ring: oklch(0.5 0.115 152);
+  --orange: oklch(0.823 0.161 76.6); /* #ffb52e */
+  --orange-foreground: oklch(0.3 0.07 60);
+  --orange-soft: oklch(0.955 0.05 85);
+  --orange-strong: oklch(0.52 0.12 62);
   --sky: oklch(0.7 0.1 230);
-  --sand: oklch(0.86 0.06 85);
-  --flag: oklch(0.6 0.2 27);
-  --chart-1: oklch(0.52 0.12 150);
-  --chart-2: oklch(0.7 0.1 230);
+  --sand: oklch(0.86 0.06 80);
+  --flag: oklch(0.58 0.2 27);
+  --chart-1: oklch(0.5 0.115 152);
+  --chart-2: oklch(0.823 0.161 76.6);
   --chart-3: oklch(0.78 0.1 80);
   --chart-4: oklch(0.6 0.2 27);
   --chart-5: oklch(0.45 0.06 200);
@@ -37,9 +42,9 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.19 0.025 155);
-    --foreground: oklch(0.95 0.015 100);
-    --card: oklch(0.23 0.03 155);
+    --background: oklch(0.19 0.022 158);
+    --foreground: oklch(0.95 0.015 85);
+    --card: oklch(0.23 0.026 158);
     --primary: oklch(0.72 0.15 150);
     --primary-foreground: oklch(0.18 0.04 155);
     --secondary: oklch(0.32 0.03 85);
@@ -52,8 +57,13 @@
     --border: oklch(0.32 0.03 155);
     --input: oklch(0.36 0.03 155);
     --ring: oklch(0.72 0.15 150);
-    --sand: oklch(0.55 0.05 85);
+    --orange: oklch(0.823 0.161 76.6);
+    --orange-foreground: oklch(0.25 0.06 60);
+    --orange-soft: oklch(0.31 0.055 75);
+    --orange-strong: oklch(0.86 0.13 80);
+    --sand: oklch(0.55 0.05 80);
     --flag: oklch(0.68 0.18 27);
+    --chart-2: oklch(0.823 0.161 76.6);
   }
 }
 
@@ -83,6 +93,10 @@
   --color-sky: var(--sky);
   --color-sand: var(--sand);
   --color-flag: var(--flag);
+  --color-orange: var(--orange);
+  --color-orange-foreground: var(--orange-foreground);
+  --color-orange-soft: var(--orange-soft);
+  --color-orange-strong: var(--orange-strong);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -99,3 +113,11 @@
     overscroll-behavior: none;
   }
 }
+
+/* Shot-tracking map markers (MapLibre renders these outside React's styling). */
+.dot-player { width: 16px; height: 16px; border-radius: 50%; background: #2f80ff; border: 3px solid #fff; box-shadow: 0 0 0 6px rgb(47 128 255 / 0.25); }
+.dot-target { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff; background: rgb(255 255 255 / 0.15); cursor: pointer; }
+.maplabel { pointer-events: none; padding: 2px 7px; border-radius: 999px; background: rgb(0 0 0 / 0.65); color: #fff; font: 600 13px/1.4 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.pin { font-size: 28px; line-height: 1; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); cursor: grab; }
+/* Keep the map credits visible: the bottom card covers the map's own corner, so lift them under the top bar. */
+.play .maplibregl-ctrl-bottom-right { top: calc(env(safe-area-inset-top) + 7rem); bottom: auto; }

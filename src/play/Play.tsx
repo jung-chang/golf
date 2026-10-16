@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Crosshair, Flag, Minus, Plus, Undo2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { Empty } from '@/components/page';
+import { Button } from '@/components/ui/button';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { cn } from '@/lib/utils';
 import { go } from '../lib/nav';
 import { clubStats, clubYards, PUTTER, shortName, shotYards, suggestClub } from '../lib/clubs';
 import { getCourse } from '../lib/courses';
@@ -27,6 +34,7 @@ export function Play({ roundId }: { roundId: string }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [recenter, setRecenter] = useState(0);
   const [pinElev, setPinElev] = useState<number | null>(null);
+  const [finishing, setFinishing] = useState(false);
   const [hereElev, setHereElev] = useState<number | null>(null);
 
   const hole = course?.holes.find((h) => h.number === round.current);
@@ -55,7 +63,11 @@ export function Play({ roundId }: { roundId: string }) {
   useEffect(() => { setTarget(null); setPicked(null); }, [round.current]);
 
   if (!course || !hole) {
-    return <div className="page"><p>This round's course ({round.courseId}) isn't installed.</p><button onClick={() => { setActive(null); go('golf'); }}>Back</button></div>;
+    return (
+      <Empty icon={<Flag />} title="This course isn't installed" action={<Button className="rounded-full" onClick={() => { setActive(null); go('golf'); }}>Back to My golf</Button>}>
+        The round was started at {round.courseId}, which has no hole map here.
+      </Empty>
+    );
   }
 
   const save = (r: typeof round, push = false) => saveRound(r, { push });
@@ -70,11 +82,13 @@ export function Play({ roundId }: { roundId: string }) {
   const last = round.current === course.holes.at(-1)!.number;
   const played = R.playedHoles(round);
 
-  function mark() {
+  function mark(force = false) {
     if (!club) return;
     if (club === PUTTER) return save(R.putt(round, fix?.pos ?? null));
-    if (!fix) return alert('No GPS position yet.');
-    if (fix.acc > 25 && !confirm(`GPS is only accurate to ±${Math.round(fix.acc * M_TO_YD)} y. Mark anyway?`)) return;
+    if (!fix) return void toast.error('No GPS position yet. Give it a few seconds outside.');
+    if (fix.acc > 25 && !force) {
+      return void toast.warning(`GPS is only accurate to ±${Math.round(fix.acc * M_TO_YD)} y`, { action: { label: 'Mark anyway', onClick: () => mark(true) } });
+    }
     save(R.markShot(round, club, fix.pos, fix.acc));
     setPicked(null);
     setTarget(null);
@@ -92,28 +106,23 @@ export function Play({ roundId }: { roundId: string }) {
       const nums = course!.holes.map((h) => h.number);
       return save({ ...r, current: nums[nums.indexOf(round.current) + 1] }, true);
     }
-    if (!confirm('Finish this round?')) return save(r);
-    save({ ...r, done: true }, true);
+    save(r);
+    setFinishing(true);
+  }
+
+  function finish() {
+    save({ ...round, done: true, updatedAt: new Date().toISOString() }, true);
     setActive(null);
     go(`golf/round/${round.id}`);
   }
 
-  return (
-    <div className="play">
-      <header className="holebar">
-        <button className="nav" aria-label="Previous hole" onClick={() => step(-1)}>‹</button>
-        <div className="title">
-          <strong>Hole {hole.number}</strong> · Par {hole.par}{hole.yards?.[round.teeId] ? ` · ${hole.yards[round.teeId]} y` : ''}
-          {hole.hcp && <small> · HCP {hole.hcp}</small>}
-          <div className="sub">
-            {round.teeName} · {played.length ? `${R.fmtToPar(R.toPar(round))} thru ${played.length}` : 'not started'}
-            {round.gameId && <> · <a href={`#games/${round.gameId}`} className="board">Leaderboard</a></>}
-          </div>
-        </div>
-        <button className="nav" aria-label="Next hole" onClick={() => step(1)}>›</button>
-      </header>
+  // Leaving keeps the round going (the strip at the top of the app resumes it).
+  const leave = () => go(round.gameId ? `games/${round.gameId}` : 'golf');
+  const glass = 'bg-background/90 shadow-md backdrop-blur';
 
-      <div className="mapwrap">
+  return (
+    <div className="play relative h-dvh overflow-hidden bg-black">
+      <div className="absolute inset-0">
         <HoleMap
           hole={hole} from={from} here={fix?.pos ?? null} pin={pin} target={target} recenter={recenter}
           labels={target ? [labelAt(from, target, String(yd(distYd(from, target)))), labelAt(target, pin, String(yd(distYd(target, pin))))] : []}
@@ -123,70 +132,121 @@ export function Play({ roundId }: { roundId: string }) {
           onPinMove={(p) => save(R.setPin(round, p))}
           onLongPress={SIM ? (p) => inject(p, 3) : undefined}
         />
-        <div className={`gps${fix && fix.acc > 15 ? ' bad' : ''}`}>
-          {error ? `GPS: ${error}` : fix ? `${live ? '' : 'Off hole · from tee · '}GPS ±${Math.round(fix.acc * M_TO_YD)} y`
-            : SIM ? 'Sim: right-click / long-press to place yourself' : 'Waiting for GPS…'}
-        </div>
-        <button className="recenter" aria-label="Recenter" onClick={() => setRecenter((n) => n + 1)}>⤢</button>
       </div>
 
-      <section className="panel">
-        <div className="yardage">
-          <div className="big">{yd(dPin)}<span className="unit">to pin</span></div>
+      {/* Top: leave, the hole (swipe through with the arrows), your score. */}
+      <header className="absolute inset-x-0 top-0 flex items-start gap-2 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+        <Button variant="ghost" size="icon" className={cn('size-11 shrink-0 rounded-full', glass)} aria-label="Leave the map (the round keeps going)" onClick={leave}><X /></Button>
+        <div className={cn('flex min-w-0 flex-1 items-center rounded-full', glass)}>
+          <Button variant="ghost" size="icon" className="size-11 shrink-0 rounded-full" aria-label="Previous hole" onClick={() => step(-1)}><ChevronLeft /></Button>
+          <div className="min-w-0 flex-1 text-center leading-tight">
+            <p className="truncate text-sm font-bold">Hole {hole.number} · Par {hole.par}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {hole.yards?.[round.teeId] ? `${hole.yards[round.teeId]} y` : round.teeName}{hole.hcp ? ` · HCP ${hole.hcp}` : ''}
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" className="size-11 shrink-0 rounded-full" aria-label="Next hole" onClick={() => step(1)}><ChevronRight /></Button>
+        </div>
+        <a href={round.gameId ? `#games/${round.gameId}` : undefined} className={cn('grid h-11 min-w-11 shrink-0 place-content-center rounded-full px-3 text-center leading-none', glass)}>
+          <span className="text-sm font-bold tabular-nums">{played.length ? R.fmtToPar(R.toPar(round)) : 'E'}</span>
+          <span className="text-[0.625rem] text-muted-foreground">{played.length ? `thru ${played.length}` : 'start'}</span>
+        </a>
+      </header>
+
+      <div className="absolute inset-x-3 top-[calc(env(safe-area-inset-top)+4rem)] flex items-center justify-between">
+        <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', fix && fix.acc > 15 || error ? 'bg-orange text-orange-foreground' : glass)}>
+          {error ? `GPS: ${error}` : fix ? `${live ? '' : 'Off the hole · from the tee · '}GPS ±${Math.round(fix.acc * M_TO_YD)} y`
+            : SIM ? 'Sim: long-press to place yourself' : 'Finding GPS…'}
+        </span>
+        <Button variant="ghost" size="icon" className={cn('size-10 rounded-full', glass)} aria-label="Recenter" onClick={() => setRecenter((n) => n + 1)}><Crosshair /></Button>
+      </div>
+
+      {/* Bottom card: the number, the club, the one button. */}
+      <section className="absolute inset-x-0 bottom-0 max-h-[60%] overflow-y-auto rounded-t-3xl bg-card px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-8px_30px_rgb(0_0_0/0.25)]">
+        <div className="flex items-end gap-4">
+          <div className="leading-none">
+            <p className="text-6xl font-extrabold tracking-tight tabular-nums">{yd(dPin)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">yards to pin</p>
+          </div>
           {fb && (
-            <div className="fb">
-              <div><small>Front</small>{yd(fb.front * M_TO_YD)}</div>
-              <div><small>Back</small>{yd(fb.back * M_TO_YD)}</div>
+            <div className="grid gap-1 pb-1 text-sm tabular-nums">
+              <p><span className="mr-1.5 text-xs text-muted-foreground">Back</span><b>{yd(fb.back * M_TO_YD)}</b></p>
+              <p><span className="mr-1.5 text-xs text-muted-foreground">Front</span><b>{yd(fb.front * M_TO_YD)}</b></p>
             </div>
           )}
-          <div className="info">
-            {!target && dz != null && Math.abs(dz) >= 1 && (
-              <div>Plays {yd(aim)} <span className="muted">({dz > 0 ? '↑' : '↓'} {Math.abs(dz).toFixed(0)} ft)</span></div>
-            )}
-            {target && <div>Target {yd(aim)} · then {yd(distYd(target, pin))} <span className="muted">(tap ○ to clear)</span></div>}
-            {sug && <div>Club <strong>{sug.club.name} ({sug.club.yards})</strong>{sug.longer && <span className="muted"> · {sug.longer.name} {sug.longer.yards}</span>}</div>}
-            <GreenTilt hole={hole} />
+          <div className="ml-auto grid justify-items-end gap-1 pb-1 text-right text-sm">
+            {sug && <p className="rounded-full bg-orange-soft px-2.5 py-0.5 font-semibold text-orange-strong">{sug.club.name} · {sug.club.yards}</p>}
+            {!target && dz != null && Math.abs(dz) >= 1 && <p className="text-xs text-muted-foreground">Plays {yd(aim)} ({dz > 0 ? '↑' : '↓'}{Math.abs(dz).toFixed(0)} ft)</p>}
+            {target && <p className="text-xs text-muted-foreground">Target {yd(aim)} · then {yd(distYd(target, pin))}</p>}
           </div>
         </div>
+        <GreenTilt hole={hole} />
 
-        <div className="clubs">
+        <div className="-mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]">
           {bag.clubs.filter((c) => c.on).map((c) => {
             const y = clubYards(c, stats, bag.useTracked);
+            const on = c.id === club;
             return (
-              <button key={c.id} className={`chip${c.id === club ? ' on' : ''}${c.id === sug?.club.id ? ' sug' : ''}`} onClick={() => setPicked(c.id)}>
-                {shortName(c.name)}{y && <small>{y}</small>}
+              <button key={c.id} type="button" aria-pressed={on} onClick={() => setPicked(c.id)}
+                className={cn('grid h-12 min-w-12 shrink-0 place-content-center rounded-xl border px-2 text-center leading-tight',
+                  on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background',
+                  !on && c.id === sug?.club.id && 'border-orange ring-1 ring-orange')}>
+                <span className="text-sm font-semibold">{shortName(c.name)}</span>
+                {y && <span className={cn('text-[0.625rem] tabular-nums', on ? 'opacity-80' : 'text-muted-foreground')}>{y}</span>}
               </button>
             );
           })}
         </div>
 
-        <div className="actions">
-          <button className="primary mark" onClick={mark} disabled={!club}>{club === PUTTER ? 'Putt' : `Mark shot · ${clubName ?? '–'}`}</button>
-          <button onClick={() => save(R.putt(round, fix?.pos ?? null))}>Putt</button>
-          <button onClick={() => save(R.penalty(round))}>Pen</button>
-          <button onClick={() => save(R.undo(round))}>Undo</button>
+        <div className="mt-3 flex gap-2">
+          <Button className="h-14 flex-1 rounded-2xl text-base" onClick={() => mark()} disabled={!club}>
+            {club === PUTTER ? 'Putt' : `Mark shot · ${clubName ?? '–'}`}
+          </Button>
+          <Button variant="outline" className="h-14 rounded-2xl px-4" onClick={() => save(R.putt(round, fix?.pos ?? null))}>Putt</Button>
+          <Button variant="outline" className="h-14 rounded-2xl px-3" onClick={() => save(R.penalty(round))}>Pen</Button>
+          <Button variant="outline" size="icon" className="size-14 rounded-2xl" aria-label="Undo" onClick={() => save(R.undo(round))}><Undo2 /></Button>
         </div>
 
-        <div className="scoreline">
-          <div className="stepper">
-            <button aria-label="Score minus one" onClick={() => save(R.adjust(round, -1))}>−</button>
-            <div><small>Score</small><strong>{R.holeScore(hs)}</strong></div>
-            <button aria-label="Score plus one" onClick={() => save(R.adjust(round, 1))}>+</button>
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex items-center rounded-2xl border bg-background">
+            <Button variant="ghost" size="icon" className="size-11 rounded-2xl" aria-label="Score minus one" onClick={() => save(R.adjust(round, -1))}><Minus /></Button>
+            <div className="w-9 text-center leading-none"><p className="text-lg font-bold tabular-nums">{R.holeScore(hs)}</p><p className="text-[0.625rem] text-muted-foreground">score</p></div>
+            <Button variant="ghost" size="icon" className="size-11 rounded-2xl" aria-label="Score plus one" onClick={() => save(R.adjust(round, 1))}><Plus /></Button>
           </div>
-          <div className="counts">Putts {hs.putts} · Pen {hs.penalties}</div>
-          <button className="primary" onClick={done}>{last ? 'Finish round' : 'Hole done ›'}</button>
+          <p className="flex-1 text-xs text-muted-foreground">{hs.putts} {hs.putts === 1 ? 'putt' : 'putts'}{hs.penalties ? ` · ${hs.penalties} pen` : ''}</p>
+          <Button variant="secondary" className="h-11 rounded-2xl px-4 font-semibold" aria-label={last ? 'Hole done, finish the round' : 'Hole done, go to the next'} onClick={done}>
+            {last ? 'Finish' : 'Next hole'} <ChevronRight />
+          </Button>
         </div>
 
-        <ol className="shots">
-          {hs.shots.map((s, i) => (
-            <li key={i} className={s.mishit ? 'mishit' : ''} onClick={() => save(R.toggleMishit(round, i))} title="Tap to mark as mishit (excluded from club stats)">
-              {i + 1}. {bag.clubs.find((c) => c.id === s.club)?.name ?? s.club}
-              <span>{s.end ? `${yd(shotYards(s))} y` : '…'}</span>
-              {s.mishit && <em>mishit</em>}
-            </li>
-          ))}
-        </ol>
+        {hs.shots.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Shots on this hole (tap to mark a mishit)">
+            {hs.shots.map((s, i) => (
+              <button key={i} type="button" onClick={() => save(R.toggleMishit(round, i))}
+                className={cn('rounded-full bg-secondary px-2.5 py-1 text-xs text-secondary-foreground', s.mishit && 'line-through opacity-60')}>
+                {i + 1}. {shortName(bag.clubs.find((c) => c.id === s.club)?.name ?? s.club)} {s.end ? `${yd(shotYards(s))} y` : '…'}
+              </button>
+            ))}
+            <span className="self-center text-[0.625rem] text-muted-foreground">tap a shot to mark a mishit</span>
+          </div>
+        )}
       </section>
+
+      <Drawer open={finishing} onOpenChange={setFinishing}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Finish the round?</DrawerTitle>
+            <DrawerDescription>
+              {R.totalScore(round)} ({R.fmtToPar(R.toPar(round))}) over {played.length} holes at {round.courseName}.
+              {round.gameId && ' It goes on the game\'s leaderboard as final.'}
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerFooter>
+            <Button className="h-12 rounded-2xl text-base" onClick={finish}><Flag /> Finish round</Button>
+            <Button variant="ghost" className="h-12 rounded-2xl" onClick={() => setFinishing(false)}>Keep playing</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
@@ -196,5 +256,5 @@ function GreenTilt({ hole }: { hole: Hole }) {
   if (e?.front == null || e.back == null || e.left == null || e.right == null) return null;
   const part = (d: number, hi: string, lo: string) => (Math.abs(d) < 0.5 ? null : `${d > 0 ? hi : lo} ${Math.abs(d).toFixed(1)} ft`);
   const bits = [part(e.back - e.front, 'back higher', 'front higher'), part(e.right - e.left, 'right higher', 'left higher')].filter(Boolean);
-  return <div className="muted">Green: {bits.length ? bits.join(', ') : 'fairly flat'}</div>;
+  return <p className="mt-1 text-xs text-muted-foreground">Green: {bits.length ? bits.join(', ') : 'fairly flat'}</p>;
 }

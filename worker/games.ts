@@ -94,9 +94,12 @@ function saveTimes(env: Env, game: Game, times: GameTime[]) {
     .bind(JSON.stringify(sorted), sorted[0].teetime, status, new Date().toISOString(), game.id).run();
 }
 
-// Upcoming and today's games, plus the last week's (for results).
+// Upcoming and today's games, plus the last week's (for results). ?past=1: the last year's played games.
 app.get('/', async (c) => {
   const today = nyToday();
+  if (c.req.query('past') === '1') {
+    return c.json(await loadGames(c.env, "g.date < ? AND g.date >= ? AND g.status != 'cancelled'", [today, addDays(today, -365)]));
+  }
   return c.json(await loadGames(c.env, "g.date >= ? AND g.status != 'cancelled'", [addDays(today, -7)]));
 });
 

@@ -1,14 +1,17 @@
-// The Alerts tab: your alerts, paused or active, with their current matches.
+// Alerts: saved searches that ping you when a matching tee time opens. Reached from the bell on Tee times.
 import { useCallback, useEffect, useState } from 'react';
-import { BellOff } from 'lucide-react';
+import { BellOff, BellRing, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Empty, PageHeader } from '@/components/page';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api';
-import { badgesChanged, useOnResume } from '@/lib/nav';
+import { badgesChanged, closeSheet, go, openSheet, useOnResume } from '@/lib/nav';
 import { enablePush, pushEnabled, pushSupported } from '@/lib/push';
 import { daysOut } from '@/lib/nyc';
+import { cn } from '@/lib/utils';
 import { timeKey, type TeeTime } from '@/schemas/teetimes';
 import type { Alert } from '@/schemas/group';
 import { AlertSetupDialog } from './AlertSetupDialog';
@@ -18,38 +21,18 @@ type Matches = { fresh: TeeTime[]; seen: TeeTime[] };
 type PushState = 'off' | 'on' | 'unsupported';
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
-
-function AlertSummary({ alert }: { alert: Alert }) {
-  const { criteria, weekdays, unread } = alert;
-  const expired = !weekdays.length && criteria.dates.every((d) => daysOut(d) < 0);
-  return (
-    <div className="grid gap-1 text-sm">
-      <div className="flex flex-wrap items-center gap-x-2 font-medium">
-        {weekdays.length > 0 && <span>{repeatLabel(weekdays)}</span>}
-        {!weekdays.length && criteria.dates.map((d) => (
-          <span key={d} className={daysOut(d) < 0 ? 'text-muted-foreground line-through' : undefined}>{dateLabel(d)}</span>
-        ))}
-        {unread.length > 0 && <span className="rounded-md bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">{unread.length} new</span>}
-        {expired && <span className="rounded-md bg-secondary px-1.5 py-0.5 text-xs font-normal text-secondary-foreground">Expired</span>}
-      </div>
-      <div className="text-muted-foreground">{criteria.codes.join(', ')} · {windowLabel(criteria.window)}</div>
-    </div>
-  );
-}
+const whenLabel = (a: Alert) => (a.weekdays.length ? repeatLabel(a.weekdays) : a.criteria.dates.map(dateLabel).join(', '));
+const expired = (a: Alert) => !a.weekdays.length && a.criteria.dates.every((d) => daysOut(d) < 0);
 
 export function Alerts({ focusId }: { focusId?: string }) {
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [push, setPush] = useState<PushState>(() => (pushSupported() ? 'off' : 'unsupported'));
-  const [openId, setOpenId] = useState<string | undefined>(focusId);
-  const [matches, setMatches] = useState<Record<string, Matches | 'error' | 'loading'>>({});
   const [editing, setEditing] = useState<Alert | null>(null);
-  const [showAll, setShowAll] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     api<Alert[]>('/alerts').then(setAlerts).catch((e) => setError(errorText(e)));
   }, []);
-
   useEffect(() => { reload(); }, [reload]);
   useOnResume(reload);
 
@@ -57,38 +40,6 @@ export function Alerts({ focusId }: { focusId?: string }) {
     if (push === 'unsupported') return;
     pushEnabled().then((on) => setPush(on ? 'on' : 'off')).catch(() => {});
   }, [push]);
-
-  // A notification link opens its alert.
-  useEffect(() => {
-    if (!focusId) return;
-    setOpenId(focusId);
-    document.getElementById(`alert-${focusId}`)?.scrollIntoView({ block: 'start' });
-  }, [focusId, alerts]);
-
-  // Matches load each time a card opens (live, not cached).
-  const loadMatches = useCallback((id: string) => {
-    setMatches((m) => ({ ...m, [id]: 'loading' }));
-    api<Matches>(`/alerts/${id}/matches?force=1`)
-      .then((r) => setMatches((m) => ({ ...m, [id]: r })))
-      .catch(() => setMatches((m) => ({ ...m, [id]: 'error' })));
-  }, []);
-
-  useEffect(() => {
-    if (openId) loadMatches(openId);
-  }, [openId, loadMatches]);
-
-  // Opening an alert counts its new times as read (they stay labelled "New" until the card closes).
-  const openAlert = alerts?.find((a) => a.id === openId);
-  const unreadCount = openAlert?.unread.length ?? 0;
-  useEffect(() => {
-    if (!openId || !unreadCount) return;
-    api(`/alerts/${openId}`, { method: 'PUT', body: { read: true } })
-      .then(() => {
-        setAlerts((list) => list?.map((a) => (a.id === openId ? { ...a, unread: [] } : a)) ?? null);
-        badgesChanged();
-      })
-      .catch(() => {});
-  }, [openId, unreadCount]);
 
   const turnOn = async () => {
     try {
@@ -114,6 +65,7 @@ export function Alerts({ focusId }: { focusId?: string }) {
     try {
       await api(`/alerts/${alert.id}`, { method: 'DELETE' });
       setAlerts((list) => list?.filter((a) => a.id !== alert.id) ?? null);
+      closeSheet('alerts');
       badgesChanged();
     } catch (e) {
       toast.error(errorText(e));
@@ -133,87 +85,57 @@ export function Alerts({ focusId }: { focusId?: string }) {
     });
   };
 
+  const markRead = useCallback((id: string) => {
+    setAlerts((list) => list?.map((a) => (a.id === id ? { ...a, unread: [] } : a)) ?? null);
+    badgesChanged();
+  }, []);
+
+  const open = alerts?.find((a) => a.id === focusId);
+
   return (
-    <div className="grid gap-4 px-4 pt-6 pb-10">
-      <h1 className="text-2xl font-semibold">Alerts</h1>
-      {push === 'unsupported' && (
-        <Card className="gap-0 py-0">
-          <CardContent className="flex items-start gap-3 p-4 text-sm">
-            <BellOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-            <p>On iPhone, add this app to your Home Screen to get notifications.</p>
-          </CardContent>
-        </Card>
-      )}
-      {push === 'off' && (
-        <Card className="gap-0 py-0">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <p className="text-sm">Turn on notifications to get alerts</p>
-            <Button className="min-h-11" onClick={turnOn}>Turn on</Button>
-          </CardContent>
-        </Card>
-      )}
+    <div className="pb-8">
+      <PageHeader back={() => go('')} title="Alerts" sub="We check TeeItUp and ping you when a time opens" />
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {!alerts && !error && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {alerts?.length === 0 && (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          No alerts yet. Search tee times, then tap the bell to get notified when new ones open.
-        </p>
-      )}
+      <div className="space-y-3 px-4 pt-2">
+        {push === 'unsupported' && (
+          <div className="flex items-start gap-3 rounded-2xl bg-secondary p-4 text-sm text-secondary-foreground">
+            <BellOff className="mt-0.5 size-5 shrink-0" />
+            <p>On iPhone, add this app to your Home Screen to get notified.</p>
+          </div>
+        )}
+        {push === 'off' && (
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-secondary p-4 text-sm text-secondary-foreground">
+            <p>Notifications are off on this phone.</p>
+            <Button className="min-h-11 rounded-full" onClick={turnOn}>Turn on</Button>
+          </div>
+        )}
 
-      {alerts?.map((alert) => {
-        const open = openId === alert.id;
-        const m = matches[alert.id];
-        return (
-          <Card key={alert.id} id={`alert-${alert.id}`} className="gap-0 py-0">
-            <div className={`flex items-center gap-2 py-2 pr-3 pl-4 ${alert.paused ? 'opacity-60' : ''}`}>
-              <button
-                type="button"
-                aria-expanded={open}
-                onClick={() => setOpenId(open ? undefined : alert.id)}
-                className="min-h-11 min-w-0 flex-1 rounded-md py-1 text-left"
-              >
-                <AlertSummary alert={alert} />
-              </button>
-              <Switch
-                aria-label={alert.paused ? 'Resume alert' : 'Pause alert'}
-                checked={!alert.paused}
-                onCheckedChange={(on) => setPaused(alert, !on)}
-              />
-            </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {!alerts && !error && [0, 1].map((i) => <Skeleton key={i} className="h-[4.5rem] rounded-2xl" />)}
+        {alerts?.length === 0 && (
+          <Empty icon={<BellRing />} title="No alerts yet" action={<a href="#" className={cn(buttonVariants(), 'min-h-11 rounded-full px-5')}>Search tee times</a>}>
+            Search, then tap the bell on the results to hear when a matching time opens.
+          </Empty>
+        )}
 
-            {open && (
-              <div className="grid gap-1 border-t px-4 py-3">
-                <p className="pb-1 text-xs text-muted-foreground">
-                  {alert.criteria.golfers.length ? `${alert.criteria.golfers[0]}+ golfers` : 'Any golfers'} · {holesLabel(alert.criteria.holes18)} · checked {everyLabel(alert.every)}
-                </p>
-                {m === undefined || m === 'loading' ? (
-                  <p className="text-sm text-muted-foreground">Checking live times…</p>
-                ) : m === 'error' ? (
-                  <p className="text-sm text-destructive">Couldn't load times. Try again in a moment.</p>
-                ) : m.fresh.length + m.seen.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No times match right now.</p>
-                ) : (
-                  <>
-                    {[...m.fresh, ...m.seen].slice(0, showAll === alert.id ? undefined : 8).map((t) => (
-                      <TimeRow key={timeKey(t)} t={t} label={m.fresh.includes(t) ? 'New' : undefined} link />
-                    ))}
-                    {showAll !== alert.id && m.fresh.length + m.seen.length > 8 && (
-                      <Button variant="ghost" className="min-h-11 text-primary" onClick={() => setShowAll(alert.id)}>
-                        Show {m.fresh.length + m.seen.length - 8} more
-                      </Button>
-                    )}
-                  </>
-                )}
-                <div className="flex gap-2 pt-2">
-                  <Button variant="outline" className="min-h-11 flex-1" onClick={() => setEditing(alert)}>Edit</Button>
-                  <Button variant="ghost" className="min-h-11 text-flag" onClick={() => remove(alert)}>Delete</Button>
-                </div>
-              </div>
-            )}
-          </Card>
-        );
-      })}
+        {alerts?.map((alert) => (
+          <div key={alert.id} className={cn('flex items-center gap-1 rounded-2xl border bg-card pr-3', alert.paused && 'opacity-60')}>
+            <button type="button" onClick={() => openSheet(`alerts/${alert.id}`)} className="flex min-h-[4.5rem] min-w-0 flex-1 items-center gap-3 rounded-2xl py-2 pl-3 text-left active:bg-accent">
+              <span className="grid size-10 shrink-0 place-content-center rounded-xl bg-accent text-accent-foreground"><BellRing className="size-5" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className={cn('truncate font-semibold', expired(alert) && 'text-muted-foreground line-through')}>{whenLabel(alert)}</span>
+                  {alert.unread.length > 0 && <span className="shrink-0 rounded-full bg-orange px-2 text-xs leading-5 font-semibold text-orange-foreground">{alert.unread.length} new</span>}
+                </span>
+                <span className="block truncate text-sm text-muted-foreground">{alert.criteria.codes.join(', ')} · {windowLabel(alert.criteria.window)}</span>
+              </span>
+            </button>
+            <Switch aria-label={alert.paused ? 'Resume alert' : 'Pause alert'} checked={!alert.paused} onCheckedChange={(on) => setPaused(alert, !on)} />
+          </div>
+        ))}
+      </div>
+
+      <AlertSheet alert={open} onClose={() => closeSheet('alerts')} onEdit={(a) => { closeSheet('alerts'); setEditing(a); }} onDelete={remove} onRead={markRead} />
 
       {editing && (
         <AlertSetupDialog
@@ -225,12 +147,73 @@ export function Alerts({ focusId }: { focusId?: string }) {
           every={editing.every}
           alertId={editing.id}
           onOpenChange={(o) => { if (!o) setEditing(null); }}
-          onSaved={() => {
-            if (openId === editing.id) loadMatches(editing.id);
-            reload();
-          }}
+          onSaved={reload}
         />
       )}
     </div>
+  );
+}
+
+/** One alert: what it watches, and what matches right now (live). Opening it marks its new times read. */
+function AlertSheet({ alert, onClose, onEdit, onDelete, onRead }: {
+  alert: Alert | undefined; onClose: () => void; onEdit: (a: Alert) => void; onDelete: (a: Alert) => void; onRead: (id: string) => void;
+}) {
+  const [matches, setMatches] = useState<Matches | 'error' | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const id = alert?.id;
+  const unread = alert?.unread.length ?? 0;
+
+  useEffect(() => {
+    if (!id) return;
+    setMatches(null);
+    setShowAll(false);
+    api<Matches>(`/alerts/${id}/matches?force=1`).then(setMatches).catch(() => setMatches('error'));
+  }, [id, alert?.criteria]);
+
+  useEffect(() => {
+    if (!id || !unread) return;
+    api(`/alerts/${id}`, { method: 'PUT', body: { read: true } }).then(() => onRead(id)).catch(() => {});
+  }, [id, unread, onRead]);
+
+  const all = matches && matches !== 'error' ? [...matches.fresh, ...matches.seen] : [];
+
+  return (
+    <Drawer open={!!alert} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DrawerContent>
+        {alert && (
+          <>
+            <DrawerHeader>
+              <DrawerTitle>{whenLabel(alert)}</DrawerTitle>
+              <DrawerDescription>
+                {alert.criteria.codes.join(', ')} · {windowLabel(alert.criteria.window)} · {alert.criteria.golfers.length ? `${alert.criteria.golfers[0]}+ golfers` : 'any golfers'} · {holesLabel(alert.criteria.holes18)} · checked {everyLabel(alert.every)}
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5">
+              <h3 className="pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Open now · tap to book</h3>
+              {matches === null ? (
+                <div className="space-y-1.5 py-1">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
+              ) : matches === 'error' ? (
+                <p className="py-2 text-sm text-destructive">Couldn't load times. Try again in a moment.</p>
+              ) : all.length === 0 ? (
+                <p className="py-2 text-sm text-muted-foreground">Nothing matches right now. We'll ping you when something opens.</p>
+              ) : (
+                <div className="divide-y">
+                  {all.slice(0, showAll ? undefined : 8).map((t) => (
+                    <TimeRow key={timeKey(t)} t={t} label={matches.fresh.includes(t) ? 'New' : undefined} link />
+                  ))}
+                  {!showAll && all.length > 8 && (
+                    <Button variant="ghost" className="min-h-11 w-full text-primary" onClick={() => setShowAll(true)}>Show {all.length - 8} more</Button>
+                  )}
+                </div>
+              )}
+            </div>
+            <DrawerFooter className="flex-row border-t">
+              <Button variant="outline" className="h-12 flex-1 rounded-2xl" onClick={() => onEdit(alert)}><Pencil /> Edit</Button>
+              <Button variant="ghost" className="h-12 rounded-2xl text-flag" onClick={() => onDelete(alert)}><Trash2 /> Delete</Button>
+            </DrawerFooter>
+          </>
+        )}
+      </DrawerContent>
+    </Drawer>
   );
 }

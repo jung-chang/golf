@@ -1,28 +1,34 @@
+// You: who you are, your golf (shot tracking lives here), notifications, and the group.
 import { useEffect, useState } from 'react';
+import { Backpack, Bell, ChartLine, Flag, LogOut, MapPin, Smartphone, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import { Group, Initials, PageHeader, Row } from '@/components/page';
+import { Button } from '@/components/ui/button';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api';
 import { handicapIndex, summarize } from '@/lib/stats';
-import { load, getState } from '@/lib/store';
+import { load, getState, useStore } from '@/lib/store';
 import { courseByCode } from '@/lib/nyc';
-import { disablePush, enablePush, pushEnabled, pushSupported } from '@/lib/push';
+import { disablePush, enablePush, needsInstall, pushEnabled, pushSupported } from '@/lib/push';
 import type { Member, MemberUpdate } from '@/schemas/group';
 import { HomeCourseSelect } from './HomeCourseSelect';
 
 const errorText = (e: unknown) => (e instanceof Error && e.message) || 'Something went wrong';
+const displayName = (m: Member) => m.name || m.email.split('@')[0];
 
 export function Profile() {
   const [me, setMe] = useState<Member | null>(null);
   const [members, setMembers] = useState<Member[] | null>(null);
-  const [name, setName] = useState('');
+  const [editing, setEditing] = useState(false);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const supported = pushSupported();
+  const rounds = useStore((s) => Object.values(s.rounds).filter((r) => r.done).length);
 
-  // Apply a saved change to both the "You" card and the group list.
+  // Apply a saved change to both you and the group list.
   const applied = (p: MemberUpdate) => {
     setMe((m) => m && { ...m, ...p });
     setMembers((ms) => ms?.map((x) => (x.email === me?.email ? { ...x, ...p } : x)) ?? null);
@@ -33,8 +39,10 @@ export function Profile() {
       await api('/me', { method: 'PUT', body: p });
       applied(p);
       if (ok) toast.success(ok);
+      return true;
     } catch (e) {
       toast.error(errorText(e));
+      return false;
     }
   };
 
@@ -45,7 +53,6 @@ export function Profile() {
         const m = await api<Member>('/me');
         if (!alive) return;
         setMe(m);
-        setName(m.name);
         // Handicap estimate from shot tracking; quietly store it if it changed.
         await load();
         const diffs = Object.values(getState().rounds)
@@ -83,129 +90,129 @@ export function Profile() {
     }
   };
 
-  const saveName = () => {
-    const v = name.trim();
-    setName(v);
-    if (me && v !== me.name) void save({ name: v }, 'Saved');
+  const home = me?.homeCourse ? courseByCode(me.homeCourse) : undefined;
+
+  return (
+    <div className="pb-8">
+      <PageHeader title="You" />
+
+      <div className="space-y-6 px-4 pt-2">
+        {/* You: tap to edit name and home course. */}
+        {me ? (
+          <button type="button" onClick={() => setEditing(true)} className="flex w-full items-center gap-4 rounded-2xl border bg-card p-4 text-left active:bg-accent">
+            <Initials name={displayName(me)} className="size-14 text-lg" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-lg font-semibold">{me.name || 'Add your name'}</span>
+              <span className="block truncate text-sm text-muted-foreground">{home ? `${home.name} regular` : me.email}</span>
+            </span>
+            <span className="text-sm font-medium text-primary">Edit</span>
+          </button>
+        ) : <Skeleton className="h-[5.5rem] rounded-2xl" />}
+
+        {me && (
+          <div className="grid grid-cols-2 gap-3">
+            <Stat href="#golf/trends" label="Handicap" value={me.handicap != null ? me.handicap.toFixed(1) : '–'} hint={me.handicap == null ? 'after 3 rounds' : undefined} />
+            <Stat href="#golf" label="Rounds tracked" value={String(rounds)} />
+          </div>
+        )}
+
+        <Group title="My golf">
+          <Row icon={<Flag />} label="Rounds" sub="Scorecards and every shot" href="#golf" />
+          <Row icon={<ChartLine />} label="Trends" sub="Scoring and how far each club goes" href="#golf/trends" />
+          <Row icon={<Backpack />} label="My bag" sub="Your clubs and yardages" href="#golf/bag" />
+          {me && me.handicap != null && (
+            <Row label="Show my handicap to the group">
+              <Switch checked={me.showHandicap} onCheckedChange={(v) => void save({ showHandicap: v })} aria-label="Show my handicap to the group" />
+            </Row>
+          )}
+        </Group>
+
+        <Group title="Notifications">
+          <Row icon={<Smartphone />} label="On this phone" sub={!supported ? (needsInstall() ? 'Add to Home Screen first (Share → Add to Home Screen)' : 'Not supported in this browser') : undefined}>
+            <Switch checked={pushOn} disabled={!supported || pushBusy} onCheckedChange={(v) => void togglePush(v)} aria-label="Notifications on this phone" />
+          </Row>
+          {me && (
+            <Row icon={<Bell />} label="New games and changes" sub="Proposals, who's in, bookings, round-day reminder">
+              <Switch checked={me.notifyGames} onCheckedChange={(v) => void save({ notifyGames: v })} aria-label="Game updates" />
+            </Row>
+          )}
+        </Group>
+
+        <Group title={`The group${members ? ` · ${members.length}` : ''}`}>
+          {members === null && <div className="p-4"><Skeleton className="h-8" /></div>}
+          {members?.map((m) => {
+            const course = m.homeCourse ? courseByCode(m.homeCourse) : undefined;
+            const isMe = m.email === me?.email;
+            return (
+              <Row
+                key={m.email}
+                icon={<Initials name={displayName(m)} className="size-8" />}
+                label={<>{displayName(m)}{isMe && <span className="text-muted-foreground"> (you)</span>}</>}
+                sub={course ? <span className="inline-flex items-center gap-1"><MapPin className="size-3" />{course.name}</span> : undefined}
+                value={m.handicap != null ? m.handicap.toFixed(1) : undefined}
+              />
+            );
+          })}
+        </Group>
+
+        <Group>
+          {me && <Row icon={<Users />} label="Signed in as" sub={me.email} />}
+          {/* A real navigation: Cloudflare Access signs you out and shows its sign-in page. */}
+          <Row icon={<LogOut />} label={<span className="text-flag">Sign out</span>} href="/cdn-cgi/access/logout" />
+        </Group>
+      </div>
+
+      {me && <EditProfile open={editing} onOpenChange={setEditing} me={me} onSave={(p) => save(p, 'Saved')} />}
+    </div>
+  );
+}
+
+function Stat({ label, value, hint, href }: { label: string; value: string; hint?: string; href: string }) {
+  return (
+    <a href={href} className="block rounded-2xl border bg-card p-4 active:bg-accent">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </a>
+  );
+}
+
+function EditProfile({ open, onOpenChange, me, onSave }: {
+  open: boolean; onOpenChange: (o: boolean) => void; me: Member; onSave: (p: MemberUpdate) => Promise<boolean>;
+}) {
+  const [name, setName] = useState(me.name);
+  const [home, setHome] = useState(me.homeCourse);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setName(me.name); setHome(me.homeCourse); } }, [open, me]);
+
+  const submit = async () => {
+    setBusy(true);
+    if (await onSave({ name: name.trim(), homeCourse: home })) onOpenChange(false);
+    setBusy(false);
   };
 
   return (
-    <div className="mx-auto max-w-md space-y-4 px-4 pt-6 pb-10">
-      <header>
-        <h1 className="text-2xl font-semibold">Profile</h1>
-        {me && (
-          <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-            Signed in as {me.email}
-            <a href="/cdn-cgi/access/logout" className="inline-flex min-h-11 items-center underline underline-offset-4">Sign out</a>
-          </p>
-        )}
-      </header>
-
-      {me && (
-        <Card className="gap-4 rounded-xl py-4">
-          <div className="space-y-4 px-4">
-            <h2 className="text-sm font-medium text-muted-foreground">You</h2>
-
-            <div className="space-y-2">
-              <label htmlFor="profile-name" className="text-sm font-medium">Name</label>
-              <Input
-                id="profile-name"
-                className="h-11 text-base"
-                maxLength={40}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={saveName}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="profile-course" className="text-sm font-medium">Home course</label>
-              <HomeCourseSelect id="profile-course" value={me.homeCourse} onChange={(code) => void save({ homeCourse: code }, 'Saved')} />
-            </div>
-
-            {/* Only once shot tracking has rounds to estimate from. */}
-            {me.handicap != null && (
-            <>
-            <div className="flex min-h-11 items-center justify-between">
-              <span className="text-sm font-medium">Handicap estimate</span>
-              <span className="text-base tabular-nums">{me.handicap.toFixed(1)}</span>
-            </div>
-
-            <label htmlFor="profile-show-hcp" className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-              <span className="text-sm font-medium">Show my handicap to the group</span>
-              <Switch
-                id="profile-show-hcp"
-                checked={me.showHandicap}
-                onCheckedChange={(v) => void save({ showHandicap: v })}
-              />
-            </label>
-            </>
-            )}
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>Edit profile</DrawerTitle>
+          <DrawerDescription>The group sees your name and home course.</DrawerDescription>
+        </DrawerHeader>
+        <div className="grid gap-4 px-5 pt-1">
+          <div className="grid gap-2">
+            <label htmlFor="profile-name" className="text-sm font-medium">Name</label>
+            <Input id="profile-name" className="h-12 rounded-xl text-base" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-        </Card>
-      )}
-
-      {me && (
-        <Card className="gap-4 rounded-xl py-4">
-          <div className="space-y-4 px-4">
-            <h2 className="text-sm font-medium text-muted-foreground">Notifications</h2>
-
-            <label htmlFor="profile-notify" className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-              <span className="text-sm font-medium">Game updates</span>
-              <Switch
-                id="profile-notify"
-                checked={me.notifyGames}
-                onCheckedChange={(v) => void save({ notifyGames: v })}
-              />
-            </label>
-
-            <div>
-              <label htmlFor="profile-push" className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-                <span className="text-sm font-medium">Notifications on this phone</span>
-                <Switch
-                  id="profile-push"
-                  checked={pushOn}
-                  disabled={!supported || pushBusy}
-                  onCheckedChange={(v) => void togglePush(v)}
-                />
-              </label>
-              {!supported && (
-                <p className="text-sm text-muted-foreground">On iPhone, add this app to your Home Screen first.</p>
-              )}
-            </div>
+          <div className="grid gap-2">
+            <label htmlFor="profile-course" className="text-sm font-medium">Home course</label>
+            <HomeCourseSelect id="profile-course" value={home} onChange={setHome} />
           </div>
-        </Card>
-      )}
-
-      <Card className="gap-4 rounded-xl py-4">
-        <div className="space-y-2 px-4">
-          <h2 className="text-sm font-medium text-muted-foreground">Group</h2>
-          {members === null && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {members?.map((m) => {
-            const isMe = m.email === me?.email;
-            const local = m.email.split('@')[0];
-            const course = m.homeCourse ? courseByCode(m.homeCourse) : undefined;
-            return (
-              <div key={m.email} className="flex min-h-11 items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <span className={m.name ? 'font-medium' : 'text-muted-foreground'}>{m.name || local}</span>
-                  {isMe && <span className="ml-1 text-sm text-muted-foreground">(you)</span>}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {course && <Badge variant="secondary">{course.code}</Badge>}
-                  {m.handicap != null && <span className="text-sm tabular-nums">{m.handicap.toFixed(1)}</span>}
-                </div>
-              </div>
-            );
-          })}
         </div>
-      </Card>
-
-      <footer className="pt-2 text-center">
-        <a href="#golf" className="inline-flex min-h-11 items-center text-sm text-muted-foreground underline underline-offset-4">
-          My rounds &amp; stats
-        </a>
-      </footer>
-    </div>
+        <DrawerFooter className="flex-row">
+          <Button variant="outline" className="h-12 flex-1 rounded-2xl" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+          <Button className="h-12 flex-[2] rounded-2xl text-base" onClick={submit} disabled={busy || !name.trim()}>Save</Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }

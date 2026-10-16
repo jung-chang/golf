@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Share } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { enablePush, needsInstall, pushEnabled, pushSupported } from '@/lib/push';
@@ -53,17 +53,17 @@ export function Welcome() {
   };
 
   return (
-    <Dialog open={!!me} onOpenChange={(o) => { if (!o) later(); }}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Welcome</DialogTitle>
-          <DialogDescription>Tell the group who you are. You can change this later in Profile.</DialogDescription>
-        </DialogHeader>
+    <Drawer open={!!me} onOpenChange={(o) => { if (!o) later(); }}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>Welcome to the group</DrawerTitle>
+          <DrawerDescription>Tell the group who you are. You can change this later in Profile.</DrawerDescription>
+        </DrawerHeader>
 
-        <div className="grid gap-4">
+        <div className="grid gap-4 overflow-y-auto px-5 pt-1">
           <div className="grid gap-2">
             <label htmlFor="welcome-name" className="text-sm font-medium">Name</label>
-            <Input id="welcome-name" className="h-11 text-base" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
+            <Input id="welcome-name" className="h-12 rounded-xl text-base" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="grid gap-2">
             <label htmlFor="welcome-course" className="text-sm font-medium">Home course</label>
@@ -71,7 +71,7 @@ export function Welcome() {
           </div>
 
           {needsInstall() ? (
-            <div className="rounded-md bg-secondary p-3 text-sm">
+            <div className="rounded-xl bg-secondary p-3 text-sm">
               <p className="font-medium">Get notifications on iPhone</p>
               <p className="text-muted-foreground">
                 Tap <Share className="inline size-4 align-text-bottom" /> Share, then <b>Add to Home Screen</b>.
@@ -79,18 +79,18 @@ export function Welcome() {
               </p>
             </div>
           ) : pushSupported() && !pushOn && (
-            <div className="flex items-center justify-between gap-3 rounded-md bg-secondary p-3 text-sm">
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-secondary p-3 text-sm">
               <p>Get told about new games and tee times</p>
               <Button variant="outline" className="min-h-11" onClick={turnOn}>Turn on</Button>
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" className="min-h-11" onClick={later} disabled={busy}>Later</Button>
-          <Button className="min-h-11" onClick={save} disabled={busy || !name.trim()}>Save</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <DrawerFooter>
+          <Button className="h-12 rounded-2xl text-base" onClick={save} disabled={busy || !name.trim()}>Save</Button>
+          <Button variant="ghost" className="h-12 rounded-2xl" onClick={later} disabled={busy}>Later</Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }

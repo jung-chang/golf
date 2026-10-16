@@ -1,43 +1,29 @@
-// Shot tracking: opens from a game on round day ("Start my round"), or at #golf.
+// Shot tracking, loaded only when opened. My golf and a round's scorecard sit inside the app (You tab);
+// Play takes the whole screen.
 import { lazy, Suspense, useEffect } from 'react';
-import { load, useStore } from '../lib/store';
-import { Courses } from '../views/Courses';
-import { Rounds, RoundDetail } from '../views/Rounds';
-import { Progress } from '../views/Progress';
-import { BagView } from '../views/Bag';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import 'uplot/dist/uPlot.min.css';
-import './golf.css';
+import { go } from '@/lib/nav';
+import { load, useStore } from '@/lib/store';
+import { MyGolf, type GolfTab } from './MyGolf';
+import { RoundDetail } from './RoundDetail';
 
-// The map (MapLibre, ~1 MB) only loads when you open a round.
+// The map (MapLibre, ~1 MB) only loads when you play.
 const Play = lazy(() => import('../play/Play').then((m) => ({ default: m.Play })));
 
-const TABS = [['golf', 'Courses'], ['golf/play', 'Play'], ['golf/rounds', 'Rounds'], ['golf/progress', 'Progress'], ['golf/bag', 'Bag']] as const;
+export default function Golf({ page, arg }: { page?: string; arg?: string }) {
+  const loaded = useStore((s) => s.loaded);
+  useEffect(() => { void load(); }, []);
+  if (!loaded) return null;
+  if (page === 'round') return <RoundDetail id={arg ?? ''} />;
+  const tab: GolfTab = page === 'trends' || page === 'progress' ? 'trends' : page === 'bag' ? 'bag' : 'rounds';
+  return <MyGolf tab={tab} />;
+}
 
-export default function GolfApp({ page, arg }: { page?: string; arg?: string }) {
+/** Full screen: the round in progress, or back to My golf if there isn't one. */
+export function PlayScreen() {
   const loaded = useStore((s) => s.loaded);
   const activeId = useStore((s) => s.activeId);
   useEffect(() => { void load(); }, []);
-
-  let screen;
-  if (!loaded) screen = null;
-  else if (page === 'play') screen = activeId ? <Play key={activeId} roundId={activeId} /> : <Courses />;
-  else if (page === 'rounds') screen = <Rounds />;
-  else if (page === 'round') screen = <RoundDetail id={arg ?? ''} />;
-  else if (page === 'progress') screen = <Progress />;
-  else if (page === 'bag') screen = <BagView />;
-  else screen = <Courses />;
-
-  const current = page === 'round' ? 'golf/rounds' : page ? `golf/${page}` : 'golf';
-  return (
-    <div className="legacy">
-      <main className={page === 'play' ? 'full' : ''}><Suspense>{screen}</Suspense></main>
-      <nav>
-        <a href="#games" className="back" aria-label="Back to the group">‹ Group</a>
-        {TABS.filter(([id]) => id !== 'golf/play' || activeId).map(([id, label]) => (
-          <a key={id} href={`#${id}`} className={current === id ? 'on' : ''}>{label}</a>
-        ))}
-      </nav>
-    </div>
-  );
+  useEffect(() => { if (loaded && !activeId) go('golf'); }, [loaded, activeId]);
+  if (!loaded || !activeId) return null;
+  return <Suspense><Play key={activeId} roundId={activeId} /></Suspense>;
 }
