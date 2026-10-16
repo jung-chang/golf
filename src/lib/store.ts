@@ -16,8 +16,24 @@ type State = {
   activeId: string | null;
 };
 
-const roundsDb = createStore('golf-rounds', 'rounds');
-const metaDb = createStore('golf-meta', 'meta');
+// Each member gets their own stores, so a friend signing in on your phone never sees (or syncs) your
+// rounds. Who you are comes from /api/me, remembered for when the course has no signal.
+type Db = ReturnType<typeof createStore>;
+let roundsDb: Db;
+let metaDb: Db;
+const MEMBER_KEY = 'golf.member';
+
+async function member(): Promise<string> {
+  try {
+    const res = await fetch('/api/me', { signal: AbortSignal.timeout(4000) });
+    const email = res.ok ? z.object({ email: z.string() }).parse(await res.json()).email : null;
+    if (email) {
+      try { localStorage.setItem(MEMBER_KEY, email); } catch { /* still works this visit */ }
+      return email;
+    }
+  } catch { /* offline: fall back to who was here last */ }
+  try { return localStorage.getItem(MEMBER_KEY) ?? 'unknown'; } catch { return 'unknown'; }
+}
 
 let state: State = { loaded: false, rounds: {}, bag: defaultBag(), activeId: null };
 const listeners = new Set<() => void>();
@@ -37,8 +53,15 @@ export const getState = () => state;
 
 // --- persistence ---------------------------------------------------------
 
-export async function load() {
-  if (state.loaded) return;
+let loading: Promise<void> | null = null;
+export function load() {
+  return (loading ??= open());
+}
+
+async function open() {
+  const who = await member();
+  roundsDb = createStore(`golf-rounds:${who}`, 'rounds');
+  metaDb = createStore(`golf-meta:${who}`, 'meta');
   const [rows, bag, activeId] = await Promise.all([entries<string, unknown>(roundsDb), get('bag', metaDb), get('activeId', metaDb)]);
   const rounds: Record<string, Round> = {};
   for (const [id, data] of rows) {
@@ -103,7 +126,7 @@ async function markDirty(key: string) {
 let syncing = false;
 
 export async function sync() {
-  if (syncing || !navigator.onLine) return;
+  if (syncing || !state.loaded || !navigator.onLine) return;
   syncing = true;
   try {
     // push local changes

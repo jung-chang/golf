@@ -118,17 +118,18 @@ GET/PUT/DELETE /api/rounds…, GET/PUT /api/bag                  as now, scoped 
 1. **Tee times** (the spec in the appendix): date strip (up to 3 dates, 14-day
    window, Dyker 10), golfer counts, 14-tile course mosaic by borough, 18-hole
    box; results in one column per date, course toggles, date toggles, time
-   window slider, tap a row to open the booking page.
+   window (time-of-day sheet), tap a row to book or propose it. A bell in the
+   header opens Alerts.
 2. **Games** — the collaborative part. On a result row, a second small button
    "Propose" posts that tee time to the group. Members with game notifications
    on get a push. Each member taps **In** or **Out**; the game shows who's in out
    of the open spots. The app can't book (TeeItUp has no booking API for us), so
    whoever books does it on TeeItUp and taps **Booked**. The Games tab lists
-   upcoming games, with mine first.
-3. **Alerts**: as in the spec, per member, with changes (see Phase 10). The
+   upcoming games (mine first) and past results; each opens in a sheet.
+3. **Alerts** (under Tee times): as in the spec, per member, with changes (see Phase 10). The
    cron compares live times with each alert's `seen` set and pushes only when
    something new matches.
-4. **Profile**: name, home course, opt in to game notifications, enable push on
+4. **You** (profile): name, home course, opt in to game notifications, enable push on
    this device, choose whether the group sees my handicap estimate. **My golf**
    holds the existing Play / Rounds / Progress / Bag screens unchanged. A
    "Resume round" banner shows when a round is in progress.
@@ -229,6 +230,48 @@ shows its score (to par, holes played) to that game's players.
     - The "Today" strip is hidden on the Games screen, which already leads
       with today's game.
 
+15. **UX pass (2026-10-16).** Three tabs instead of four, and bottom sheets
+    (shadcn Drawer, vaul) instead of centred dialogs.
+    - **Tabs: Tee times · Games · You.** Search is still the landing screen.
+    - **Alerts** are saved searches, so they live under Tee times: a bell in
+      its header (with the unread count) opens the Alerts screen; each alert
+      opens in a sheet with its live matches. The Tee times tab carries the
+      alert badge.
+    - **Games:** Upcoming / Past switch. Compact rows (date tile, times,
+      faces, "In?" when you haven't answered); tapping one opens the whole
+      game in a sheet with I'm in / Can't make it pinned at the bottom.
+      Past = the last year (`GET /games?past=1`).
+    - **You:** profile card (edit in a sheet), handicap and rounds, My golf
+      (Rounds, Progress, Bag: the shot-tracking screens), notifications, the
+      group, sign out.
+    - **Results:** time of day is a chip that opens a sheet with presets
+      (Early, Morning, Afternoon, Twilight) and the slider; course chips sit
+      beside it, so the list gets the screen.
+    - Sheets with a URL (`#games/<id>`, `#alerts/<id>`) close with the
+      phone's back button.
+
+16. **Tangerine and My golf (2026-10-16).**
+    - Theme: tangerine (`--orange`, `-soft`, `-strong`) marks what needs you
+      (counts, "In?", new matches, the round in progress, the suggested club,
+      trend lines). Green is for acting; flag red only for destructive
+      actions. The cream is a touch warmer to sit between them.
+    - Shot tracking rebuilt in the app's own components (the old 5-tab area
+      and its CSS are gone). **My golf** sits in the You tab: stats, then
+      Rounds / Trends / Bag, and Start a round. A round's scorecard is its own
+      page. **Play** is a full-screen map with a floating hole bar and a
+      bottom card (yardage, club, Mark shot, score, Next hole); finishing
+      asks in a sheet.
+
+17. **Hardening (2026-10-16).**
+    - The API answers only this app's own pages: cross-site fetches are
+      refused (`Sec-Fetch-Site`), and every change must carry our own
+      `Origin`. Opening an API link (the Access sign-in round trip, the .ics)
+      still works. Security headers on the API (`secureHeaders`) and the
+      pages (`public/_headers`).
+    - Shot tracking's on-device stores are per member
+      (`golf-rounds:<email>`), so a friend signing in on your phone never
+      sees or syncs your rounds. The email is remembered for offline use.
+
 ## Open questions
 
 - **Mosholu** uses its own booking system. Its source still has to be found
@@ -248,7 +291,7 @@ Booking inside the app, payments, chat, multiple groups, admin roles, email or
 SMS notifications, offline group data, in-app course upload, offline map tiles,
 auto shot detection, e2e browser tests.
 
-## Golf tracking (exists, now under Profile)
+## Golf tracking (You → My golf)
 
 - One JSON file per course in `courses/`, checked by a test. Points are
   `[lng, lat]`. `tools/build-course.ts` builds one from OpenStreetMap, a

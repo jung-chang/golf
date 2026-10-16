@@ -33,6 +33,8 @@ Cloudflare, never in git. Free plans cover a group (Workers, D1, Zero Trust up t
 3. **Sign-in (Zero Trust → Access → Applications).**
    - Self-hosted app for `<your-domain>`, session 1 month, policy **Allow** →
      **Emails** = your group.
+   - In the app's **Settings → Cookies**: SameSite **Lax**, **HTTP Only** on,
+     and **Binding Cookie** on (ties the sign-in to the device it was made on).
    - A second self-hosted app with action **Bypass** → **Everyone** for
      `<your-domain>/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png` and
      `/apple-touch-icon.png`. Browsers fetch these without the sign-in cookie,
@@ -53,7 +55,10 @@ Cloudflare, never in git. Free plans cover a group (Workers, D1, Zero Trust up t
    add `DOMAIN` under the build's variables.
 
 The Worker checks the Access token on every API call and rejects everything
-until `TEAM_DOMAIN` and `POLICY_AUD` are set. workers.dev and preview URLs are
+until `TEAM_DOMAIN` and `POLICY_AUD` are set. It also only answers the app's own
+pages (`worker/origin.ts`: browsers label each request with where it came from),
+so another site can't act with a member's sign-in. `public/_headers` adds the
+usual security headers to the pages. workers.dev and preview URLs are
 off so nothing skips Access. Keep emails, keys and exports out of your fork
 (see [AGENTS.md](AGENTS.md)).
 
@@ -62,19 +67,22 @@ Adding a golfer = adding their email to the Access policy. They open the site,
 
 Alert checks run from the hourly cron at 7am, 12pm and 7pm New York time.
 
-## Shot tracking (hidden, `#golf`)
+## Shot tracking (You → My golf)
 
-
-- **Courses** → tap a course → pick tees → the round starts.
-- **Play**: the big number is yards to the pin; front/back are to the edges of the
-  green along your line. Drag the flag to today's pin. Tap the map to measure to a
-  target (tap ○ to clear). "Plays" adjusts for elevation (~1 yd per 3 ft).
+- **My golf** (`#golf`): your numbers (handicap estimate, average score, putts,
+  greens), then **Rounds** (tap one for its scorecard and every shot), **Trends**
+  (scoring and per-club distance over time) and **Bag**. **Start a round** →
+  pick tees. On round day, "Start my round" in a game does the same and puts your
+  score on that game's leaderboard.
+- **Play** is full screen: the big number is yards to the pin; front/back are to
+  the edges of the green along your line. Drag the flag to today's pin. Tap the
+  map to measure to a target (tap ○ to clear). "Plays" adjusts for elevation
+  (~1 yd per 3 ft). ✕ leaves the map; the round keeps going (resume from the
+  orange strip).
 - **Mark shot** where your ball is, with the club you're about to hit (the
-  suggested club is preselected). A shot's distance is set when you mark the next
+  suggested club is highlighted). A shot's distance is set when you mark the next
   one, or putt. On the green, Mark shot becomes Putt. Tap a logged shot to flag a
-  mishit (left out of club stats). **Hole done** moves on and syncs.
-- **Progress**: handicap estimate, scoring trend, putts, greens in regulation, and
-  per-club distance over time.
+  mishit (left out of club stats). **Next hole** moves on and syncs.
 - **Bag**: stock yardages vs. tracked (median of your last 10 shots). Suggestions
   switch to tracked once a club has 3+ shots.
 
@@ -135,12 +143,11 @@ Live GPS yardages are unaffected; add `teePos` overrides when you have them.
 ```
 src/
   features/     tee times, games, alerts, profile (the main app)
-  components/ui shadcn components
-  golf/         hidden shot-tracking shell (#golf)
+  components/   shared screen pieces (page.tsx) and shadcn components (ui/)
+  golf/         My golf: rounds, trends (uPlot), bag, scorecard, start a round
   schemas/      Zod: tee times, group (members, games, alerts), course file, round, bag
   lib/          geo, clubs, round actions, stats, store (IndexedDB + sync), elevation
-  play/         on-course screen, map, GPS hook
-  views/        courses, rounds, progress (uPlot), bag
+  play/         on-course screen (full-screen map), GPS hook
 worker/         Hono API on D1: tee-times, games, alerts (+ cron), push, me/members, rounds, bag
 migrations/     D1 schema
 courses/        course files

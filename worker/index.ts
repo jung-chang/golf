@@ -1,7 +1,9 @@
 // The Worker: static assets (the app) are served by Cloudflare before this runs;
 // only /api/* reaches it. Every API call is tied to a member via Cloudflare Access.
 import { Hono } from 'hono';
+import { secureHeaders } from 'hono/secure-headers';
 import { auth } from './auth';
+import { sameOrigin } from './origin';
 import { nyToday } from '../src/lib/nyc';
 import type { AppEnv, Env } from './env';
 import alerts, { runAlerts } from './alerts';
@@ -12,7 +14,7 @@ import rounds from './rounds';
 import teetimes from './teetimes';
 
 const app = new Hono<AppEnv>().basePath('/api');
-app.use('*', auth);
+app.use('*', secureHeaders(), sameOrigin, auth);
 // "Sign in again": Access signs the member in on the way here, then they go back to the app.
 app.get('/login', (c) => c.redirect('/'));
 // Tab badges (upcoming games still waiting on my answer, alert times I haven't opened),
