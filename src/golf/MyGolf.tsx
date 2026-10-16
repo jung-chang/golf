@@ -1,12 +1,12 @@
 // My golf: your numbers up top, then Rounds, Trends and Bag. Start a round from the button at the bottom.
 // Everything here is yours alone; a game only ever sees your score.
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Flag, Play as PlayIcon } from 'lucide-react';
 import { Empty, PageHeader } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { go } from '@/lib/nav';
+import { closeSheet, go } from '@/lib/nav';
 import { fmtToPar, playedHoles, toPar, totalScore } from '@/lib/round';
 import { handicapIndex, summarize } from '@/lib/stats';
 import { saveRound, setActive, useStore } from '@/lib/store';
@@ -14,16 +14,18 @@ import { cn } from '@/lib/utils';
 import type { Round } from '@/schemas/round';
 import { BagView } from './Bag';
 import { StartRound } from './StartRound';
+import { SyncStatus } from '@/components/data-status';
 
 // Charts (uPlot) load only when Trends opens.
 const Trends = lazy(() => import('./Trends'));
 
 export type GolfTab = 'rounds' | 'trends' | 'bag';
 
-export function MyGolf({ tab }: { tab: GolfTab }) {
+export function MyGolf({ tab, start = false }: { tab: GolfTab; start?: boolean }) {
   const rounds = useStore((s) => s.rounds);
   const active = useStore((s) => (s.activeId ? s.rounds[s.activeId] : undefined));
-  const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState(start);
+  useEffect(() => { if (start) setStarting(true); }, [start]);
 
   const list = useMemo(() => Object.values(rounds).sort((a, b) => b.date.localeCompare(a.date)), [rounds]);
   const sums = useMemo(() => list.map(summarize).filter((s) => s.holes > 0).sort((a, b) => a.t - b.t), [list]);
@@ -45,6 +47,7 @@ export function MyGolf({ tab }: { tab: GolfTab }) {
         <PageHeader back={() => go('profile')} title="My golf" sub="Only you see this. Games see your score." />
 
         <div className="space-y-4 px-4 pt-2">
+          <SyncStatus />
           {active && (
             <div className="rounded-2xl bg-orange-soft p-4">
               <p className="text-xs font-semibold tracking-wide text-orange-strong uppercase">Round in progress</p>
@@ -59,12 +62,12 @@ export function MyGolf({ tab }: { tab: GolfTab }) {
             </div>
           )}
 
-          <div className="grid grid-cols-4 gap-2">
+          {sums.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat label="Handicap" value={hi != null ? hi.toFixed(1) : '–'} />
             <Stat label="Avg score" value={recent.length ? String(Math.round(recent.reduce((s, r) => s + r.score, 0) / recent.length)) : '–'} />
             <Stat label="Putts/hole" value={holes ? (sums.reduce((n, s) => n + s.putts, 0) / holes).toFixed(1) : '–'} />
             <Stat label="Greens" value={girHoles ? `${Math.round((100 * sums.reduce((n, s) => n + s.gir, 0)) / girHoles)}%` : '–'} />
-          </div>
+          </div>}
 
           <Tabs value={tab} onValueChange={(v) => location.replace(`#golf${v === 'rounds' ? '' : `/${v}`}`)}>
             <TabsList className="h-10 w-full rounded-full">
@@ -77,7 +80,7 @@ export function MyGolf({ tab }: { tab: GolfTab }) {
           {tab === 'rounds' && (
             list.length === 0 ? (
               <Empty icon={<Flag />} title="No rounds yet">
-                Start one from a game on round day, or below. Mark each shot and we'll learn your distances.
+                Choose a course and tees to get started. At your ball, mark each shot before you hit. Your scorecard and club distances build as you play.
               </Empty>
             ) : (
               <div className="space-y-2">{list.map((r) => <RoundRow key={r.id} r={r} />)}</div>
@@ -93,7 +96,7 @@ export function MyGolf({ tab }: { tab: GolfTab }) {
           <Button className="h-12 w-full rounded-2xl text-base shadow-sm" onClick={() => setStarting(true)}><Flag /> Start a round</Button>
         </div>
       )}
-      <StartRound open={starting} onOpenChange={setStarting} />
+      <StartRound historyManaged={start} open={starting} onOpenChange={(open) => { setStarting(open); if (!open && start) closeSheet('golf'); }} />
     </div>
   );
 }
@@ -102,7 +105,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border bg-card px-2 py-3 text-center">
       <p className="text-xl font-bold tabular-nums">{value}</p>
-      <p className="text-[0.6875rem] text-muted-foreground">{label}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
     </div>
   );
 }

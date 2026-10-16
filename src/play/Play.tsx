@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Crosshair, Flag, Minus, Plus, Undo2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Crosshair, Flag, Minus, MoreHorizontal, Plus, Undo2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Empty } from '@/components/page';
 import { Button } from '@/components/ui/button';
+import { SyncStatus } from '@/components/data-status';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
 import { go } from '../lib/nav';
@@ -35,6 +36,7 @@ export function Play({ roundId }: { roundId: string }) {
   const [recenter, setRecenter] = useState(0);
   const [pinElev, setPinElev] = useState<number | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [tools, setTools] = useState(false);
   const [hereElev, setHereElev] = useState<number | null>(null);
 
   const hole = course?.holes.find((h) => h.number === round.current);
@@ -154,11 +156,11 @@ export function Play({ roundId }: { roundId: string }) {
       </header>
 
       <div className="absolute inset-x-3 top-[calc(env(safe-area-inset-top)+4rem)] flex items-center justify-between">
-        <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', fix && fix.acc > 15 || error ? 'bg-orange text-orange-foreground' : glass)}>
+        <span className={cn('mr-2 max-w-[calc(100%-3.5rem)] rounded-xl px-2.5 py-1 text-sm font-medium', fix && fix.acc > 15 || error ? 'bg-orange-soft text-warning' : glass)}>
           {error ? `GPS: ${error}` : fix ? `${live ? '' : 'Off the hole · from the tee · '}GPS ±${Math.round(fix.acc * M_TO_YD)} y`
             : SIM ? 'Sim: long-press to place yourself' : 'Finding GPS…'}
         </span>
-        <Button variant="ghost" size="icon" className={cn('size-10 rounded-full', glass)} aria-label="Recenter" onClick={() => setRecenter((n) => n + 1)}><Crosshair /></Button>
+        <Button variant="ghost" size="icon" className={cn('size-11 shrink-0 rounded-full', glass)} aria-label="Recenter" onClick={() => setRecenter((n) => n + 1)}><Crosshair /></Button>
       </div>
 
       {/* Bottom card: the number, the club, the one button. */}
@@ -181,6 +183,7 @@ export function Play({ roundId }: { roundId: string }) {
           </div>
         </div>
         <GreenTilt hole={hole} />
+        {played.length === 0 && hs.shots.length === 0 && hs.putts === 0 && <p className="mt-2 text-sm text-muted-foreground">At your ball, choose a club and mark the shot before you hit. Tap Putt on the green.</p>}
 
         <div className="-mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]">
           {bag.clubs.filter((c) => c.on).map((c) => {
@@ -192,7 +195,7 @@ export function Play({ roundId }: { roundId: string }) {
                   on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background',
                   !on && c.id === sug?.club.id && 'border-orange ring-1 ring-orange')}>
                 <span className="text-sm font-semibold">{shortName(c.name)}</span>
-                {y && <span className={cn('text-[0.625rem] tabular-nums', on ? 'opacity-80' : 'text-muted-foreground')}>{y}</span>}
+                {y && <span className={cn('text-xs tabular-nums', on ? 'opacity-90' : 'text-muted-foreground')}>{y}</span>}
               </button>
             );
           })}
@@ -202,18 +205,13 @@ export function Play({ roundId }: { roundId: string }) {
           <Button className="h-14 flex-1 rounded-2xl text-base" onClick={() => mark()} disabled={!club}>
             {club === PUTTER ? 'Putt' : `Mark shot · ${clubName ?? '–'}`}
           </Button>
-          <Button variant="outline" className="h-14 rounded-2xl px-4" onClick={() => save(R.putt(round, fix?.pos ?? null))}>Putt</Button>
-          <Button variant="outline" className="h-14 rounded-2xl px-3" onClick={() => save(R.penalty(round))}>Pen</Button>
-          <Button variant="outline" size="icon" className="size-14 rounded-2xl" aria-label="Undo" onClick={() => save(R.undo(round))}><Undo2 /></Button>
+          {club !== PUTTER && <Button variant="outline" className="h-14 rounded-2xl px-4" onClick={() => save(R.putt(round, fix?.pos ?? null))}>Putt</Button>}
+          <Button variant="outline" size="icon" className="size-14 rounded-2xl" aria-label="Undo last action" disabled={!hs.log.length} onClick={() => save(R.undo(round))}><Undo2 /></Button>
         </div>
 
-        <div className="mt-3 flex items-center gap-3">
-          <div className="flex items-center rounded-2xl border bg-background">
-            <Button variant="ghost" size="icon" className="size-11 rounded-2xl" aria-label="Score minus one" onClick={() => save(R.adjust(round, -1))}><Minus /></Button>
-            <div className="w-9 text-center leading-none"><p className="text-lg font-bold tabular-nums">{R.holeScore(hs)}</p><p className="text-[0.625rem] text-muted-foreground">score</p></div>
-            <Button variant="ghost" size="icon" className="size-11 rounded-2xl" aria-label="Score plus one" onClick={() => save(R.adjust(round, 1))}><Plus /></Button>
-          </div>
-          <p className="flex-1 text-xs text-muted-foreground">{hs.putts} {hs.putts === 1 ? 'putt' : 'putts'}{hs.penalties ? ` · ${hs.penalties} pen` : ''}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 text-sm"><b>{R.holeScore(hs)}</b> strokes · {hs.putts} {hs.putts === 1 ? 'putt' : 'putts'}</p>
+          <Button variant="ghost" size="icon" className="size-11 rounded-xl" aria-label="Hole tools and penalties" onClick={() => setTools(true)}><MoreHorizontal /></Button>
           <Button variant="secondary" className="h-11 rounded-2xl px-4 font-semibold" aria-label={last ? 'Hole done, finish the round' : 'Hole done, go to the next'} onClick={done}>
             {last ? 'Finish' : 'Next hole'} <ChevronRight />
           </Button>
@@ -223,14 +221,30 @@ export function Play({ roundId }: { roundId: string }) {
           <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Shots on this hole (tap to mark a mishit)">
             {hs.shots.map((s, i) => (
               <button key={i} type="button" onClick={() => save(R.toggleMishit(round, i))}
-                className={cn('rounded-full bg-secondary px-2.5 py-1 text-xs text-secondary-foreground', s.mishit && 'line-through opacity-60')}>
+                className={cn('min-h-11 rounded-full bg-secondary px-3 py-2 text-sm text-secondary-foreground', s.mishit && 'line-through opacity-60')}>
                 {i + 1}. {shortName(bag.clubs.find((c) => c.id === s.club)?.name ?? s.club)} {s.end ? `${yd(shotYards(s))} y` : '…'}
               </button>
             ))}
-            <span className="self-center text-[0.625rem] text-muted-foreground">tap a shot to mark a mishit</span>
+            <span className="self-center text-sm text-muted-foreground">Tap a shot to mark a mishit</span>
           </div>
         )}
+        <SyncStatus />
       </section>
+
+      <Drawer open={tools} onOpenChange={setTools}>
+        <DrawerContent>
+          <DrawerHeader><DrawerTitle>Hole {hole.number} tools</DrawerTitle><DrawerDescription>Adjust a missed stroke or add a penalty. Your shots stay saved.</DrawerDescription></DrawerHeader>
+          <div className="space-y-4 overflow-y-auto px-5 pb-5">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-3">
+              <Button variant="outline" size="icon" className="size-12" aria-label="Score minus one" disabled={R.holeScore(hs) <= 0} onClick={() => save(R.adjust(round, -1))}><Minus /></Button>
+              <p className="text-center"><b className="text-2xl tabular-nums">{R.holeScore(hs)}</b><span className="block text-sm text-muted-foreground">strokes</span></p>
+              <Button variant="outline" size="icon" className="size-12" aria-label="Score plus one" onClick={() => save(R.adjust(round, 1))}><Plus /></Button>
+            </div>
+            <Button variant="outline" className="h-12 w-full rounded-xl" onClick={() => save(R.penalty(round))}>Add a penalty stroke</Button>
+            <p className="text-sm text-muted-foreground">{hs.penalties} penalty {hs.penalties === 1 ? 'stroke' : 'strokes'} on this hole.</p>
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       <Drawer open={finishing} onOpenChange={setFinishing}>
         <DrawerContent>

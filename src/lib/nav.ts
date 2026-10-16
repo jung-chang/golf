@@ -26,7 +26,7 @@ export function openSheet(hash: string) {
 /** Close it: step back if we opened it, else (arrived by link) go to the screen underneath. */
 export function closeSheet(parent: string) {
   if ((history.state as { sheet?: boolean } | null)?.sheet) history.back();
-  else go(parent);
+  else location.replace(`#${parent}`);
 }
 
 /** Calls `fn` whenever the app comes back to the foreground (window focus is unreliable in an iPhone home-screen app). */

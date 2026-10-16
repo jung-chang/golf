@@ -3,7 +3,8 @@ import { CalendarSearch, ChevronRight, Flag, UserRound, Users } from 'lucide-rea
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-import { SIGNED_OUT, api } from '@/lib/api';
+import { ACCOUNT_CHANGED, SIGNED_OUT, api } from '@/lib/api';
+import { LoadingScreen } from '@/components/data-status';
 import { BADGES_CHANGED, useHash, useOnResume } from '@/lib/nav';
 import { TeeTimes } from '@/features/teetimes/TeeTimes';
 import { Games } from '@/features/games/Games';
@@ -82,13 +83,20 @@ export function App() {
   const [page, ...rest] = useHash().split('/');
   const badges = useBadges(page);
   const signedOut = useSignedOut();
+  const [accountChanged, setAccountChanged] = useState(false);
+  useEffect(() => {
+    const on = () => setAccountChanged(true);
+    addEventListener(ACCOUNT_CHANGED, on);
+    return () => removeEventListener(ACCOUNT_CHANGED, on);
+  }, []);
+  if (accountChanged) return <div className="mx-auto max-w-lg space-y-4 p-6"><h1 className="text-xl font-bold">Your account changed</h1><p>Reload to open the current account's data.</p><Button className="min-h-12" onClick={() => location.reload()}>Reload app</Button></div>;
 
   if (page === 'golf' && rest[0] === 'play') {
-    return <><Suspense><PlayScreen /></Suspense><Toaster position="top-center" /></>;
+    return <><Suspense fallback={<LoadingScreen />}><PlayScreen /></Suspense>{signedOut && <div className="fixed inset-x-0 top-0 z-50 bg-background p-4"><a href="/api/login" className="font-semibold underline">Sign in again to continue</a></div>}<Toaster position="top-center" /></>;
   }
 
   let screen;
-  if (page === 'golf') screen = <Suspense><Golf page={rest[0]} arg={rest[1]} /></Suspense>;
+  if (page === 'golf') screen = <Suspense fallback={<LoadingScreen />}><Golf page={rest[0]} arg={rest[1]} /></Suspense>;
   else if (page === 'games') screen = <Games focusId={rest[0]} />;
   else if (page === 'alerts') screen = <Alerts focusId={rest[0]} />;
   else if (page === 'profile') screen = <Profile />;

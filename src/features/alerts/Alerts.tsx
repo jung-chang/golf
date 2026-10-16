@@ -135,7 +135,13 @@ export function Alerts({ focusId }: { focusId?: string }) {
         ))}
       </div>
 
-      <AlertSheet alert={open} onClose={() => closeSheet('alerts')} onEdit={(a) => { closeSheet('alerts'); setEditing(a); }} onDelete={remove} onRead={markRead} />
+      <AlertSheet alert={open} onClose={() => closeSheet('alerts')} onEdit={(a) => {
+        // Replace detail before opening the editor so an asynchronous history.back()
+        // cannot immediately dismiss the new sheet.
+        history.replaceState(null, '', '#alerts');
+        dispatchEvent(new HashChangeEvent('hashchange'));
+        setEditing(a);
+      }} onDelete={remove} onRead={markRead} />
 
       {editing && (
         <AlertSetupDialog
@@ -178,7 +184,7 @@ function AlertSheet({ alert, onClose, onEdit, onDelete, onRead }: {
   const all = matches && matches !== 'error' ? [...matches.fresh, ...matches.seen] : [];
 
   return (
-    <Drawer open={!!alert} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Drawer historyManaged open={!!alert} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DrawerContent>
         {alert && (
           <>

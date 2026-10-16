@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarSearch, History, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Empty, IconAction, PageHeader } from '@/components/page';
+import { LoadError } from '@/components/data-status';
 import { buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -21,21 +22,25 @@ export function Games({ focusId }: { focusId?: string }) {
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [me, setMe] = useState<Member | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [pastError, setPastError] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    setError(null);
     Promise.all([api<Game[]>('/games'), api<Member>('/me')])
       .then(([g, m]) => { setGames(g); setMe(m); })
-      .catch(() => toast.error("Couldn't load games"));
+      .catch(() => setError("Your games couldn't load. Check your connection and try again."));
     api<Member[]>('/members').then(setMembers).catch(() => {});
   }, []);
   const loadPast = useCallback(() => {
-    api<Game[]>('/games?past=1').then((g) => setPast(g.reverse())).catch(() => toast.error("Couldn't load past games"));
+    setPastError(null);
+    api<Game[]>('/games?past=1').then((g) => setPast(g.reverse())).catch(() => setPastError("Your past games couldn't load. Try again."));
   }, []);
 
   useEffect(load, [load]);
   useEffect(() => { void loadRounds(); }, []); // your own rounds, for "Resume my round"
   useOnResume(load);
-  useEffect(() => { if (tab === 'past' && !past) loadPast(); }, [tab, past, loadPast]);
+  useEffect(() => { if (tab === 'past' && !past && !pastError) loadPast(); }, [tab, past, pastError, loadPast]);
 
   const today = nyToday();
   const live = !!games?.some((g) => phase(g, today) === 'today');
@@ -48,7 +53,7 @@ export function Games({ focusId }: { focusId?: string }) {
 
   // A link to an older game (#games/<id>) than the list holds: look in the past ones.
   const focused = focusId ? games?.find((g) => g.id === focusId) ?? past?.find((g) => g.id === focusId) : undefined;
-  useEffect(() => { if (focusId && games && !focused && !past) loadPast(); }, [focusId, games, focused, past, loadPast]);
+  useEffect(() => { if (focusId && games && !focused && !past && !pastError) loadPast(); }, [focusId, games, focused, past, pastError, loadPast]);
 
   const replace = (g: Game) => {
     setGames((gs) => gs?.map((x) => (x.id === g.id ? g : x)) ?? null);
@@ -91,6 +96,8 @@ export function Games({ focusId }: { focusId?: string }) {
   return (
     <div className="pb-8">
       <PageHeader title="Games" actions={<IconAction label="Refresh" onClick={() => (tab === 'past' ? loadPast() : load())}><RefreshCw className="size-5" /></IconAction>} />
+      {(tab === 'upcoming' ? error : pastError) && <LoadError message={(tab === 'upcoming' ? error : pastError)!} retry={tab === 'upcoming' ? load : loadPast} />}
+      {focusId && games && past && !focused && <LoadError message="This game is unavailable or has been cancelled." retry={() => closeSheet('games')} />}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="px-4 pt-1">
         <TabsList className="h-10 w-full rounded-full">
@@ -101,7 +108,7 @@ export function Games({ focusId }: { focusId?: string }) {
 
       <div className="space-y-5 px-4 pt-4">
         {tab === 'upcoming' && (
-          !games || !me ? <ListSkeleton /> : sections.length === 0 ? (
+          !games || !me ? (error ? null : <ListSkeleton />) : sections.length === 0 ? (
             <Empty icon={<CalendarSearch />} title="Nothing planned" action={findButton}>
               Find a tee time and propose it. Everyone gets a ping to say they're in.
             </Empty>
@@ -114,7 +121,7 @@ export function Games({ focusId }: { focusId?: string }) {
         )}
 
         {tab === 'past' && (
-          !past || !me ? <ListSkeleton /> : pastList.length === 0 ? (
+          !past || !me ? (pastError || error ? null : <ListSkeleton />) : pastList.length === 0 ? (
             <Empty icon={<History />} title="No games played yet">Results and leaderboards land here after each round.</Empty>
           ) : (
             <section className="space-y-2">

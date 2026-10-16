@@ -1,11 +1,42 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { Drawer as DrawerPrimitive } from "vaul"
+import { X } from 'lucide-react'
 
 function Drawer({
+  open,
+  onOpenChange,
+  historyManaged = false,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Root>) {
-  return <DrawerPrimitive.Root data-slot="drawer" {...props} />
+}: React.ComponentProps<typeof DrawerPrimitive.Root> & { historyManaged?: boolean }) {
+  const id = React.useId()
+  const callback = React.useRef(onOpenChange)
+  callback.current = onOpenChange
+  const mounted = React.useRef(false)
+  const openRef = React.useRef(open)
+  openRef.current = open
+  React.useEffect(() => {
+    mounted.current = true
+    if (!open || historyManaged) return () => { mounted.current = false }
+    const url = location.href
+    // Games and alert details already have a URL/history entry. Local sheets use an
+    // entry at the same URL so phone Back dismisses them without leaving the screen.
+    const state = history.state as { sheet?: boolean; drawer?: string } | null
+    if (state?.drawer !== id) history.pushState({ ...state, drawer: id }, '', url)
+    const back = () => {
+      if ((history.state as { drawer?: string } | null)?.drawer !== id) callback.current?.(false)
+    }
+    addEventListener('popstate', back)
+    return () => {
+      mounted.current = false
+      removeEventListener('popstate', back)
+      // Defer cleanup so React StrictMode's effect replay doesn't pop a live sheet.
+      queueMicrotask(() => {
+        if ((!mounted.current || !openRef.current) && location.href === url && (history.state as { drawer?: string } | null)?.drawer === id) history.back()
+      })
+    }
+  }, [open, id, historyManaged])
+  return <DrawerPrimitive.Root data-slot="drawer" open={open} onOpenChange={onOpenChange} {...props} />
 }
 
 function DrawerTrigger({
@@ -63,6 +94,7 @@ function DrawerContent({
         {...props}
       >
         <div className="mx-auto mt-2.5 hidden h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30 group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+        <DrawerPrimitive.Close aria-label="Close sheet" className="absolute top-3 right-3 grid size-11 place-content-center rounded-full bg-muted text-foreground"><X className="size-5" /></DrawerPrimitive.Close>
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>
@@ -74,7 +106,7 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="drawer-header"
       className={cn(
-        "flex flex-col gap-1 px-5 pt-3 pb-2 text-left",
+        "shrink-0 flex flex-col gap-1 pl-5 pr-16 pt-3 pb-2 text-left",
         className
       )}
       {...props}
@@ -86,7 +118,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="drawer-footer"
-      className={cn("mt-auto flex flex-col gap-2 px-5 pt-3 pb-4", className)}
+      className={cn("mt-auto shrink-0 flex flex-col gap-2 px-5 pt-3 pb-4", className)}
       {...props}
     />
   )

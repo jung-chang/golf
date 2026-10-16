@@ -2,8 +2,8 @@
 
 A private, mobile-first app for a golf group: live NYC public-course tee
 times, propose one to the group, see who's in, and get alerts when new times
-open. Shot tracking (GPS yardages, rounds, progress) is built in but hidden at
-`#golf` for now. React + Vite + shadcn/ui, one Cloudflare Worker (static assets
+open. Shot tracking (GPS yardages, rounds, progress) lives in You → My golf.
+React + Vite + shadcn/ui, one Cloudflare Worker (static assets
 + a Hono API), D1 (SQLite). See [PLAN.md](PLAN.md) for the why.
 
 ## Develop
@@ -69,6 +69,16 @@ Alert checks run from the hourly cron at 7am, 12pm and 7pm New York time.
 
 ## Shot tracking (You → My golf)
 
+- **Find a time:** choose up to three dates, minimum available spots, time of day,
+  and courses. Search courses by name or borough; star favorites on this device.
+  Results use one date at a time, with full course names, holes, availability and
+  starting prices when supplied. Search and filter state survives reloading this
+  tab or returning from TeeItUp; availability is refreshed when the app resumes.
+- **Appearance:** You → Appearance offers Follow phone setting, Light, and Dark.
+  Charts follow the theme and include expandable text data.
+- **Booking:** proposing or RSVPing never reserves a tee time. Games show booking
+  status separately; TeeItUp handles the reservation and payment.
+
 - **My golf** (`#golf`): your numbers (handicap estimate, average score, putts,
   greens), then **Rounds** (tap one for its scorecard and every shot), **Trends**
   (scoring and per-club distance over time) and **Bag**. **Start a round** →
@@ -87,6 +97,13 @@ Alert checks run from the hourly cron at 7am, 12pm and 7pm New York time.
   switch to tracked once a club has 3+ shots.
 
 Data is saved on the phone on every tap and synced to D1 when you have signal.
+The golf screens show saving, saved locally, syncing, and retry states. If a
+local save fails, keep the app open and retry. Each member has separate stores;
+an offline visit can use the last verified member, while online identity errors
+never fall back to another member. Requests include the expected member, which
+the Worker compares with the authenticated identity. An account change locks
+the old view and asks for a reload. Handicap publishing waits for a complete
+successful sync. There is no migration from pre-launch local database names.
 
 ## Courses (plug and play)
 

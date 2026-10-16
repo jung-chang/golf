@@ -103,12 +103,12 @@ export function GameRow({ game, phase, me, onOpen }: { game: Game; phase: Phase;
         <span className="block truncate font-semibold">{shortName(game.code)}</span>
         <span className="block truncate text-sm text-muted-foreground tabular-nums">
           {phase === 'today' ? `${times[0]} · ${countdown(game.times[0].teetime)}` : times.length > 2 ? `${times[0]} +${times.length - 1} more` : times.join(', ')}
-          {phase !== 'played' && (booked ? ' · booked' : ' · not booked')}
         </span>
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
           <Faces names={players.map((p) => p.name)} />
           {players.length} in{phase !== 'played' && ` · ${spots(capacity(game))}`}
         </span>
+        {phase !== 'played' && <span className={cn('block text-sm font-medium', booked ? 'text-success' : 'text-warning')}>{booked ? 'Booked' : 'Booking needed · proposed'}</span>}
       </span>
       {chip}
     </button>
@@ -120,7 +120,7 @@ export function GameSheet({ game, phase, me, members, actions, onClose }: {
   game: Game | undefined; phase: Phase; me: Member; members: Member[]; actions: GameActions; onClose: () => void;
 }) {
   return (
-    <Drawer open={!!game} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Drawer historyManaged open={!!game} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DrawerContent>
         {game && <GameDetail key={game.id} game={game} phase={phase} me={me} members={members} actions={actions} />}
       </DrawerContent>
@@ -133,6 +133,7 @@ function GameDetail({ game, phase, me, members, actions }: { game: Game; phase: 
   const trackable = nyc?.courseId ? getCourse(nyc.courseId) : undefined;
   const myRound = useStore((s) => Object.values(s.rounds).find((r) => r.gameId === game.id));
   const [picking, setPicking] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const players = ins(game);
   const cap = capacity(game);
@@ -146,10 +147,14 @@ function GameDetail({ game, phase, me, members, actions }: { game: Game; phase: 
   const nameOf = (m: Member) => (m.email === me.email ? 'You' : m.name || m.email.split('@')[0]);
 
   const begin = async (teeId: string) => {
-    if (!trackable || !(await actions.checkIn(game))) return;
-    startRound(trackable, teeId, game.id);
-    setPicking(false);
-    go('golf/play');
+    if (!trackable || starting) return;
+    setStarting(true);
+    try {
+      if (!(await actions.checkIn(game))) return;
+      startRound(trackable, teeId, game.id);
+      setPicking(false);
+      go('golf/play');
+    } finally { setStarting(false); }
   };
 
   if (picking && trackable) {
@@ -163,7 +168,7 @@ function GameDetail({ game, phase, me, members, actions }: { game: Game; phase: 
           {trackable.tees.map((t) => {
             const yards = trackable.holes.every((h) => h.yards?.[t.id]) ? trackable.holes.reduce((s, h) => s + (h.yards?.[t.id] ?? 0), 0) : null;
             return (
-              <Button key={t.id} variant="outline" className="h-14 justify-start gap-3 rounded-2xl" onClick={() => void begin(t.id)}>
+              <Button key={t.id} disabled={starting} variant="outline" className="h-14 justify-start gap-3 rounded-2xl" onClick={() => void begin(t.id)}>
                 <span className="size-5 rounded-full border" style={{ background: t.color }} />
                 <span className="font-medium">{t.name}</span>
                 {yards && <span className="text-muted-foreground">{yards} y</span>}
@@ -271,6 +276,7 @@ function GameDetail({ game, phase, me, members, actions }: { game: Game; phase: 
           </Button>
         </DrawerFooter>
       )}
+      {phase !== 'played' && <p className="px-5 pb-3 text-center text-sm text-muted-foreground">RSVP tells the group you're in. Reserve and pay separately on TeeItUp.</p>}
     </>
   );
 }

@@ -1,6 +1,7 @@
 // Thin React wrapper around uPlot: rebuilds when data/options change, resizes with its box.
 import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
+import { useResolvedTheme } from '@/lib/theme';
 
 export function Chart({ data, series, height = 220, yLabel }: {
   data: uPlot.AlignedData;
@@ -9,6 +10,7 @@ export function Chart({ data, series, height = 220, yLabel }: {
   yLabel?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const theme = useResolvedTheme();
   useEffect(() => {
     const el = box.current!;
     const css = getComputedStyle(el);
@@ -26,6 +28,6 @@ export function Chart({ data, series, height = 220, yLabel }: {
     const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }));
     ro.observe(el);
     return () => { ro.disconnect(); plot.destroy(); };
-  }, [data, series, height, yLabel]);
+  }, [data, series, height, yLabel, theme]);
   return <div ref={box} className="-mx-1" />;
 }

@@ -8,9 +8,11 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, D
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import { api } from '@/lib/api';
+import { LoadError, SyncStatus } from '@/components/data-status';
+import { SIGNED_OUT, api } from '@/lib/api';
 import { handicapIndex, summarize } from '@/lib/stats';
-import { load, getState, useStore } from '@/lib/store';
+import { load, useStore } from '@/lib/store';
+import { setTheme, useTheme, type Theme } from '@/lib/theme';
 import { courseByCode } from '@/lib/nyc';
 import { disablePush, enablePush, needsInstall, pushEnabled, pushSupported } from '@/lib/push';
 import type { Member, MemberUpdate } from '@/schemas/group';
@@ -25,8 +27,15 @@ export function Profile() {
   const [editing, setEditing] = useState(false);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const theme = useTheme();
   const supported = pushSupported();
   const rounds = useStore((s) => Object.values(s.rounds).filter((r) => r.done).length);
+  const history = useStore((s) => s.rounds);
+  const initialSynced = useStore((s) => s.initialSynced);
+  const syncStatus = useStore((s) => s.syncStatus);
+  const owner = useStore((s) => s.owner);
 
   // Apply a saved change to both you and the group list.
   const applied = (p: MemberUpdate) => {
@@ -48,34 +57,38 @@ export function Profile() {
 
   useEffect(() => {
     let alive = true;
+    setError(null);
     (async () => {
       try {
         const m = await api<Member>('/me');
         if (!alive) return;
         setMe(m);
-        // Handicap estimate from shot tracking; quietly store it if it changed.
-        await load();
-        const diffs = Object.values(getState().rounds)
-          .map(summarize)
-          .sort((a, b) => a.t - b.t)
-          .flatMap((s) => (s.differential == null ? [] : [s.differential]));
-        const est = handicapIndex(diffs);
-        if (est !== m.handicap && alive) {
-          await api('/me', { method: 'PUT', body: { handicap: est } });
-          if (alive) setMe((cur) => cur && { ...cur, handicap: est });
-        }
+        void load();
       } catch (e) {
-        if (alive) toast.error(errorText(e));
+        if (alive) setError(errorText(e));
       }
     })();
     api<Member[]>('/members')
       .then((list) => alive && setMembers(list))
-      .catch(() => alive && toast.error("Couldn't load the group"));
+      .catch(() => alive && setError("Couldn't load the group. Try again."));
     pushEnabled().then((on) => alive && setPushOn(on)).catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [attempt]);
+
+  useEffect(() => {
+    // Never publish an estimate from an empty or incomplete local cache on a new device.
+    if (!me || owner !== me.email || !initialSynced || syncStatus !== 'synced') return;
+    const est = handicapIndex(Object.values(history).filter((r) => r.done).map(summarize)
+      .sort((a, b) => a.t - b.t).flatMap((s) => s.differential == null ? [] : [s.differential]));
+    if (est === me.handicap) return;
+    let alive = true;
+    api<Member>('/me', { method: 'PUT', body: { handicap: est }, member: owner })
+      .then((m) => { if (alive) { setMe(m); setMembers((ms) => ms?.map((x) => x.email === m.email ? m : x) ?? null); } })
+      .catch(() => { /* keep the last verified estimate; retry after the next sync */ });
+    return () => { alive = false; };
+  }, [history, initialSynced, syncStatus, owner, me]);
 
   const togglePush = async (on: boolean) => {
     setPushBusy(true);
@@ -95,6 +108,7 @@ export function Profile() {
   return (
     <div className="pb-8">
       <PageHeader title="You" />
+      {error && <LoadError message={error} retry={() => setAttempt((n) => n + 1)} />}
 
       <div className="space-y-6 px-4 pt-2">
         {/* You: tap to edit name and home course. */}
@@ -107,7 +121,7 @@ export function Profile() {
             </span>
             <span className="text-sm font-medium text-primary">Edit</span>
           </button>
-        ) : <Skeleton className="h-[5.5rem] rounded-2xl" />}
+        ) : !error && <Skeleton className="h-[5.5rem] rounded-2xl" />}
 
         {me && (
           <div className="grid grid-cols-2 gap-3">
@@ -117,6 +131,7 @@ export function Profile() {
         )}
 
         <Group title="My golf">
+          <Row icon={<Flag />} label="Start a round" sub="Choose a course and tees" href="#golf/start" />
           <Row icon={<Flag />} label="Rounds" sub="Scorecards and every shot" href="#golf" />
           <Row icon={<ChartLine />} label="Trends" sub="Scoring and how far each club goes" href="#golf/trends" />
           <Row icon={<Backpack />} label="My bag" sub="Your clubs and yardages" href="#golf/bag" />
@@ -125,6 +140,18 @@ export function Profile() {
               <Switch checked={me.showHandicap} onCheckedChange={(v) => void save({ showHandicap: v })} aria-label="Show my handicap to the group" />
             </Row>
           )}
+        </Group>
+
+        <SyncStatus />
+
+        <Group title="Appearance">
+          <div className="space-y-2 p-4">
+            <label htmlFor="app-theme" className="text-sm font-medium">Color theme</label>
+            <select id="app-theme" className="h-12 w-full rounded-xl border border-input bg-background px-3 text-base" value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
+              <option value="system">Follow phone setting</option><option value="light">Light</option><option value="dark">Dark</option>
+            </select>
+            <p className="text-sm text-muted-foreground">Choose the clearest view for the course.</p>
+          </div>
         </Group>
 
         <Group title="Notifications">
@@ -139,7 +166,7 @@ export function Profile() {
         </Group>
 
         <Group title={`The group${members ? ` · ${members.length}` : ''}`}>
-          {members === null && <div className="p-4"><Skeleton className="h-8" /></div>}
+          {members === null && !error && <div className="p-4"><Skeleton className="h-8" /></div>}
           {members?.map((m) => {
             const course = m.homeCourse ? courseByCode(m.homeCourse) : undefined;
             const isMe = m.email === me?.email;
@@ -158,7 +185,7 @@ export function Profile() {
         <Group>
           {me && <Row icon={<Users />} label="Signed in as" sub={me.email} />}
           {/* A real navigation: Cloudflare Access signs you out and shows its sign-in page. */}
-          <Row icon={<LogOut />} label={<span className="text-flag">Sign out</span>} href="/cdn-cgi/access/logout" />
+          <Row icon={<LogOut />} label={<span className="text-flag">Sign out</span>} href="/cdn-cgi/access/logout" onClick={() => dispatchEvent(new Event(SIGNED_OUT))} />
         </Group>
       </div>
 

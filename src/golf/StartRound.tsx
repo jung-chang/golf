@@ -6,7 +6,7 @@ import { go } from '@/lib/nav';
 import { startRound } from '@/lib/store';
 import type { Course } from '@/schemas/course';
 
-export function StartRound({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function StartRound({ open, onOpenChange, historyManaged = false }: { open: boolean; onOpenChange: (o: boolean) => void; historyManaged?: boolean }) {
   const begin = (course: Course, teeId: string) => {
     startRound(course, teeId);
     onOpenChange(false);
@@ -14,7 +14,7 @@ export function StartRound({ open, onOpenChange }: { open: boolean; onOpenChange
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer historyManaged={historyManaged} open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>Start a round</DrawerTitle>

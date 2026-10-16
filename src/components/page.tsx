@@ -72,7 +72,7 @@ export function Row({ icon, label, sub, value, href, onClick, className, childre
     </>
   );
   const cls = cn('flex min-h-12 w-full items-center gap-3 px-4 py-2 text-left', tappable && 'active:bg-accent', className);
-  if (href) return <a href={href} className={cls}>{body}</a>;
+  if (href) return <a href={href} onClick={onClick} className={cls}>{body}</a>;
   if (onClick) return <button type="button" onClick={onClick} className={cls}>{body}</button>;
   return <div className={cls}>{body}</div>;
 }

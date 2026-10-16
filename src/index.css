@@ -1,8 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Dark mode follows the phone's setting. */
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/* theme.ts resolves System / Light / Dark before rendering the app. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /* Golf palette: fairway green (act), marigold #ffb52e (what needs you: counts, "In?", new, live round),
    warm cream paper, bunker sand, pine ink. Flag red is only for destructive actions. */
@@ -23,13 +23,18 @@
   --accent: oklch(0.93 0.05 145);
   --accent-foreground: oklch(0.3 0.06 152);
   --destructive: oklch(0.58 0.2 27);
-  --border: oklch(0.895 0.02 85);
-  --input: oklch(0.87 0.024 85);
+  --border: oklch(0.85 0.02 85);
+  --input: oklch(0.63 0.025 150);
   --ring: oklch(0.5 0.115 152);
   --orange: oklch(0.823 0.161 76.6); /* #ffb52e */
   --orange-foreground: oklch(0.3 0.07 60);
   --orange-soft: oklch(0.955 0.05 85);
   --orange-strong: oklch(0.52 0.12 62);
+  --attention: var(--orange);
+  --attention-foreground: var(--orange-foreground);
+  --warning: var(--orange-strong);
+  --success: var(--primary);
+  --chart-trend: oklch(0.55 0.12 62);
   --sky: oklch(0.7 0.1 230);
   --sand: oklch(0.86 0.06 80);
   --flag: oklch(0.58 0.2 27);
@@ -40,8 +45,7 @@
   --chart-5: oklch(0.45 0.06 200);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+:root[data-theme="dark"] {
     --background: oklch(0.19 0.022 158);
     --foreground: oklch(0.95 0.015 85);
     --card: oklch(0.23 0.026 158);
@@ -55,7 +59,7 @@
     --accent-foreground: oklch(0.92 0.05 145);
     --destructive: oklch(0.68 0.18 27);
     --border: oklch(0.32 0.03 155);
-    --input: oklch(0.36 0.03 155);
+    --input: oklch(0.55 0.03 155);
     --ring: oklch(0.72 0.15 150);
     --orange: oklch(0.823 0.161 76.6);
     --orange-foreground: oklch(0.25 0.06 60);
@@ -64,7 +68,8 @@
     --sand: oklch(0.55 0.05 80);
     --flag: oklch(0.68 0.18 27);
     --chart-2: oklch(0.823 0.161 76.6);
-  }
+    --chart-trend: oklch(0.86 0.13 80);
+    --chart-1: var(--primary);
 }
 
 @theme inline {
@@ -97,6 +102,11 @@
   --color-orange-foreground: var(--orange-foreground);
   --color-orange-soft: var(--orange-soft);
   --color-orange-strong: var(--orange-strong);
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-chart-trend: var(--chart-trend);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -112,6 +122,11 @@
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none;
   }
+  button, a, input, select, [role="tab"] { touch-action: manipulation; }
+  :where(button, a, input, select, [tabindex]):focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+  }
 }
 
 /* Shot-tracking map markers (MapLibre renders these outside React's styling). */
@@ -121,3 +136,7 @@
 .pin { font-size: 28px; line-height: 1; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); cursor: grab; }
 /* Keep the map credits visible: the bottom card covers the map's own corner, so lift them under the top bar. */
 .play .maplibregl-ctrl-bottom-right { top: calc(env(safe-area-inset-top) + 7rem); bottom: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Bell, BellPlus, ChevronDown, Clock, Loader2, RefreshCw, SearchX, User, Users } from 'lucide-react';
-import { toast } from 'sonner';
+import { Bell, BellPlus, ChevronDown, Clock, Loader2, RefreshCw, SearchX, Users } from 'lucide-react';
 import { Empty, IconAction, PageHeader } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
@@ -13,14 +12,16 @@ import { TimeSheet } from '@/features/games/TimeSheet';
 import { CoursePicker } from './CoursePicker';
 import { dayLabel } from '@/features/games/label';
 import { api } from '@/lib/api';
-import { go } from '@/lib/nav';
+import { go, useOnResume } from '@/lib/nav';
 import { courseByCode, MAX_DAYS, NYC_COURSES, nyToday } from '@/lib/nyc';
 import { filterTimes, fmtMinutes, toMinutes } from '@/lib/teetimes';
 import { cn } from '@/lib/utils';
+import { LoadError } from '@/components/data-status';
+import { Criteria as CriteriaSchema, TeeTimesResponse as ResponseSchema } from '@/schemas/teetimes';
 import type { Game, Member } from '@/schemas/group';
 import type { Criteria, TeeTime, TeeTimesResponse } from '@/schemas/teetimes';
 
-export type Form = { dates: string[]; golfers: number[]; codes: string[]; holes18: boolean };
+export type Form = { dates: string[]; golfers: number[]; codes: string[]; holes18: boolean; window: [number, number] };
 
 type State = {
   /** The search form, as last edited. */
@@ -30,13 +31,15 @@ type State = {
   response: TeeTimesResponse | null;
   loading: boolean;
   /** Results-screen toggles: hidden dates, courses switched on, time window. */
-  hidden: string[];
+  selectedDate: string | null;
+  error: string | null;
   on: string[];
   window: [number, number];
 };
 
 const FORM_KEY = 'golf.teetimes.form';
-const EMPTY: Form = { dates: [], golfers: [], codes: [], holes18: true };
+const EMPTY: Form = { dates: [], golfers: [], codes: [], holes18: true, window: [300, 1200] };
+const RESULTS_KEY = 'golf.teetimes.results';
 
 const addDays = (date: string, n: number) => {
   const d = new Date(`${date}T12:00:00Z`);
@@ -53,8 +56,9 @@ function loadForm(): Form {
     return {
       dates: (saved.dates ?? []).filter((d) => days.includes(d)).slice(0, 3),
       golfers: (saved.golfers ?? []).filter((g) => g >= 1 && g <= 4).sort().slice(0, 1), // one choice: "at least N"
-      codes: (saved.codes ?? []).filter((c) => courseByCode(c)),
+      codes: (saved.codes ?? []).filter((c) => courseByCode(c)?.tenant),
       holes18: saved.holes18 ?? true,
+      window: Array.isArray(saved.window) && saved.window.length === 2 && saved.window.every((n) => Number.isInteger(n) && n >= 300 && n <= 1200) && saved.window[0] <= saved.window[1] ? saved.window : [300, 1200],
     };
   } catch {
     return EMPTY;
@@ -66,10 +70,21 @@ let state: State = {
   last: null,
   response: null,
   loading: false,
-  hidden: [],
+  selectedDate: null,
+  error: null,
   on: [],
-  window: [300, 1200],
+  window: loadForm().window,
 };
+try {
+  const saved = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
+  const last = CriteriaSchema.safeParse(saved?.last);
+  const response = ResponseSchema.safeParse(saved?.response);
+  if (last.success && response.success && last.data.dates.every((d) => strip().includes(d))) {
+    state = { ...state, last: last.data, response: response.data,
+      on: Array.isArray(saved.on) ? saved.on.filter((c: unknown) => typeof c === 'string' && last.data.codes.includes(c)) : last.data.codes,
+      selectedDate: last.data.dates.includes(saved.selectedDate) ? saved.selectedDate : last.data.dates[0], window: last.data.window };
+  }
+} catch { /* expired or unavailable session storage: use the form */ }
 const listeners = new Set<() => void>();
 const subscribe = (l: () => void) => {
   listeners.add(l);
@@ -79,6 +94,12 @@ const subscribe = (l: () => void) => {
 };
 const update = (patch: Partial<State>) => {
   state = { ...state, ...patch };
+  try {
+    if (state.last && state.response) sessionStorage.setItem(RESULTS_KEY, JSON.stringify({
+      last: { ...state.last, window: state.window }, response: state.response, on: state.on, selectedDate: state.selectedDate,
+    }));
+    else if ('last' in patch) sessionStorage.removeItem(RESULTS_KEY);
+  } catch { /* results still remain in memory */ }
   listeners.forEach((l) => l());
 };
 const useStore = () => useSyncExternalStore(subscribe, () => state);
@@ -102,21 +123,19 @@ async function fetchTimes(f: Form, force = false): Promise<TeeTimesResponse> {
 async function find() {
   const f = state.form;
   // Straight to the results screen; it shows placeholder rows until times arrive.
-  update({ loading: true, response: null, last: f, hidden: [], on: f.codes });
+  update({ loading: true, response: null, last: f, selectedDate: f.dates[0], on: f.codes, window: f.window, error: null });
   go('results');
   try {
-    update({ response: await fetchTimes(f), loading: false });
+    const response = await fetchTimes(f);
+    if (state.last === f) update({ response, loading: false });
   } catch {
-    update({ loading: false, last: null });
-    go('');
-    toast.error("Couldn't load tee times. Try again.");
+    if (state.last === f) update({ loading: false, error: "Couldn't load tee times. Check your connection and try again." });
   }
 }
 
 /** Search from elsewhere (a game needing another tee time): fill the form and window, then find. */
-export function searchFor(form: Form, window: [number, number]) {
-  setForm(form);
-  update({ window });
+export function searchFor(form: Omit<Form, 'window'>, window: [number, number]) {
+  setForm({ ...form, window });
   void find();
 }
 
@@ -134,13 +153,13 @@ function useHomeCourse() {
 
 async function refresh() {
   const last = state.last;
-  if (!last) return;
-  update({ loading: true });
+  if (!last || state.loading) return;
+  update({ loading: true, error: null });
   try {
-    update({ response: await fetchTimes(last, true), loading: false });
+    const response = await fetchTimes(last, true);
+    if (state.last === last) update({ response, loading: false });
   } catch {
-    update({ loading: false });
-    toast.error("Couldn't refresh. Try again.");
+    if (state.last === last) update({ loading: false, error: "Couldn't refresh. Previously loaded times are shown; availability may have changed." });
   }
 }
 
@@ -150,10 +169,6 @@ function toggle<T>(list: T[], v: T) {
 
 const dow = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
 const dom = (d: string) => Number(d.slice(8));
-const short = (hhmm: string) => {
-  const m = toMinutes(hhmm);
-  return `${Math.floor(m / 60) % 12 || 12}:${String(m % 60).padStart(2, '0')}${m < 720 ? 'a' : 'p'}`;
-};
 const uniq = (ts: TeeTime[]) => {
   const seen = new Set<string>();
   return ts.filter((t) => {
@@ -177,9 +192,11 @@ const Heading = ({ children, aside }: { children: React.ReactNode; aside?: React
 
 function SearchScreen({ alerts }: { alerts: number }) {
   const { form, loading } = useStore();
+  const [timeOpen, setTimeOpen] = useState(false);
   useHomeCourse();
   const days = strip();
-  const allOn = form.codes.length === NYC_COURSES.length;
+  const liveCourses = NYC_COURSES.filter((c) => c.tenant);
+  const allOn = liveCourses.every((c) => form.codes.includes(c.code));
 
   const pickDate = (d: string) =>
     setForm({ dates: form.dates.includes(d) ? form.dates.filter((x) => x !== d) : [...form.dates, d].sort() });
@@ -190,7 +207,7 @@ function SearchScreen({ alerts }: { alerts: number }) {
         title="Tee times"
         actions={<IconAction label="Alerts" count={alerts} onClick={() => go('alerts')}><Bell className="size-5" /></IconAction>}
       />
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-2 pb-4">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pt-2 pb-4">
         <section className="space-y-2">
           <Heading aside={<span className="text-xs text-muted-foreground">up to 3</span>}>When</Heading>
           <div className="-mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
@@ -201,6 +218,7 @@ function SearchScreen({ alerts }: { alerts: number }) {
                   key={d}
                   type="button"
                   aria-pressed={on}
+                  aria-label={`${i === 0 ? 'Today, ' : ''}${dayLabel(d)}`}
                   disabled={!on && form.dates.length >= 3}
                   onClick={() => pickDate(d)}
                   className={cn(
@@ -217,7 +235,8 @@ function SearchScreen({ alerts }: { alerts: number }) {
         </section>
 
         <section className="space-y-2">
-          <Heading>Golfers</Heading>
+          <Heading>Available spots</Heading>
+          <p className="text-sm text-muted-foreground">How many golfers? We'll show times with at least this many spots.</p>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -234,15 +253,29 @@ function SearchScreen({ alerts }: { alerts: number }) {
         </section>
 
         <section className="space-y-2">
+          <Heading>Time of day</Heading>
+          <div className="flex flex-wrap gap-2">
+            {PRESETS.filter((p) => ['Any time', 'Morning, before noon', 'Afternoon, noon on'].includes(p.label)).map((p) => (
+              <button key={p.label} type="button" aria-pressed={same(form.window, p.window)} onClick={() => setForm({ window: p.window })}
+                className={cn('min-h-11 rounded-full border border-input px-4 text-sm font-medium', same(form.window, p.window) && 'border-primary bg-primary text-primary-foreground')}>
+                {p.label.split(',')[0]}
+              </button>
+            ))}
+          </div>
+          <Button variant="ghost" className="min-h-11 px-1 text-primary" onClick={() => setTimeOpen(true)}><Clock />Choose exact hours · {windowName(form.window)}</Button>
+        </section>
+
+        <section className="space-y-2">
           <Heading
             aside={(
-              <Button variant="ghost" size="sm" className="-mr-2 min-h-11 text-primary" onClick={() => setForm({ codes: allOn ? [] : NYC_COURSES.map((c) => c.code) })}>
+              <Button variant="ghost" size="sm" className="-mr-2 min-h-11 text-primary" onClick={() => setForm({ codes: allOn ? [] : liveCourses.map((c) => c.code) })}>
                 {allOn ? 'Clear' : 'All'}
               </Button>
             )}
           >
             Where
           </Heading>
+          {form.codes.length > 0 && <p className="text-sm text-muted-foreground">{form.codes.length <= 2 ? form.codes.map((c) => courseByCode(c)?.name ?? c).join(', ') : `${form.codes.length} courses`} selected</p>}
           <CoursePicker selected={form.codes} onToggle={(code) => setForm({ codes: toggle(form.codes, code) })} />
         </section>
 
@@ -258,161 +291,95 @@ function SearchScreen({ alerts }: { alerts: number }) {
           {loading ? 'Searching…' : !form.dates.length ? 'Pick a date' : !form.codes.length ? 'Pick a course' : 'Find tee times'}
         </Button>
       </div>
+      <TimeOfDay open={timeOpen} onOpenChange={setTimeOpen} value={form.window} onChange={(window) => setForm({ window })} />
     </div>
   );
 }
 
-function Row({ t, showCode, inGame, onOpen }: { t: TeeTime; showCode: boolean; inGame: boolean; onOpen: () => void }) {
+function Row({ t, inGame, onOpen }: { t: TeeTime; inGame: boolean; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} className="flex min-h-12 w-full items-center gap-1.5 rounded-xl border bg-card px-3 text-left text-sm transition-colors active:scale-[0.98] active:bg-accent">
-      <span className="font-semibold tabular-nums">{short(t.time)}</span>
-      {showCode && <span className="text-xs text-muted-foreground">{t.code}</span>}
-      {inGame && <Users className="size-3.5 text-primary" aria-label="Already in a group game" />}
-      <span className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums" aria-label={`${t.spots} spots`}>
-        <User className="size-3" />{t.spots}
+    <button type="button" onClick={onOpen} className="grid min-h-20 w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 rounded-2xl border bg-card px-4 py-3 text-left transition-colors active:bg-accent">
+      <span className="text-lg font-bold tabular-nums">{fmtMinutes(toMinutes(t.time))}</span>
+      <span className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-baseline gap-x-2">
+        <span className="text-base font-semibold">{courseByCode(t.code)?.name ?? t.code}</span>
+        <span className="text-sm text-muted-foreground">{t.holes.join(' or ')} holes{t.priceCents != null && ` · from $${(t.priceCents / 100).toFixed(2)}`}</span>
+        {inGame && <span className="mt-1 flex items-center gap-1 text-sm font-medium text-primary"><Users className="size-4" />Already proposed</span>}
       </span>
+      <span className="col-start-2 row-start-1 rounded-full bg-accent px-2.5 py-1 text-sm font-semibold text-accent-foreground">{t.spots} {t.spots === 1 ? 'spot' : 'spots'}</span>
     </button>
   );
 }
 
 function Results() {
-  const { last, response, hidden, on, window: win, loading } = useStore();
+  const { last, response, selectedDate, on, window: win, loading, error } = useStore();
   const [alertOpen, setAlertOpen] = useState(false);
   const [timeOpen, setTimeOpen] = useState(false);
   const [picked, setPicked] = useState<TeeTime | null>(null);
-  // Times the group already has in a game, so nobody proposes or books them twice.
   const [grouped, setGrouped] = useState<Set<string>>(new Set());
+  useOnResume(refresh);
   useEffect(() => {
-    api<Game[]>('/games')
-      .then((games) => setGrouped(new Set(games.flatMap((g) => g.times.map((t) => `${g.code}|${t.teetime}`)))))
-      .catch(() => {});
+    if (state.response && (minutesAgo(state.response.fetched) ?? 0) >= 2) void refresh();
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    api<Game[]>('/games').then((games) => { if (alive) setGrouped(new Set(games.flatMap((g) => g.times.map((t) => `${g.code}|${t.teetime}`)))); }).catch(() => {});
+    return () => { alive = false; };
   }, [picked]);
-
-  const all = useMemo(() => {
-    if (!response || !last) return [];
-    return uniq(filterTimes(response.times, {
-      dates: last.dates,
-      codes: on,
-      golfers: last.golfers,
-      holes18: last.holes18,
-      window: win,
-    }));
-  }, [response, last, on, win]);
-
-  if (loading && !response && last) {
-    return (
-      <div className="flex h-full flex-col" aria-busy="true" aria-label="Loading tee times">
-        <PageHeader back={() => go('')} title="Searching…" sub="Live from TeeItUp" />
-        <div className="grid gap-2 px-4 pt-2" style={{ gridTemplateColumns: `repeat(${last.dates.length}, minmax(0, 1fr))` }}>
-          {last.dates.map((d) => (
-            <div key={d} className="space-y-1.5">
-              {Array.from({ length: 9 }, (_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (!response || !last) return null;
-
-  const visible = last.dates.filter((d) => !hidden.includes(d));
-  const shown = all.filter((t) => visible.includes(t.date));
-  const canAlert = visible.length > 0 && on.length > 0;
-  const criteria: Criteria = { dates: visible, golfers: last.golfers, codes: on.filter((c) => courseByCode(c)?.tenant), holes18: last.holes18, window: win };
-  const failedTenants = new Set(response.errors.map((e) => e.tenant));
-  const failed = last.codes.filter((c) => {
-    const tenant = courseByCode(c)?.tenant;
-    return !!tenant && failedTenants.has(tenant);
-  });
-  const mins = minutesAgo(response.fetched);
-  const manyDates = last.dates.length > 1;
-  const manyCourses = last.codes.length > 1;
-  const title = `${last.dates.map((d) => (manyDates ? `${dow(d)} ${dom(d)}` : dayLabel(d))).join(', ')} · ${last.codes.length > 3 ? `${last.codes.length} courses` : last.codes.join(', ')}`;
-  const chip = 'flex h-9 shrink-0 items-center gap-1 rounded-full border px-3 text-sm font-medium transition-colors';
-
+  const all = useMemo(() => !response || !last ? [] : uniq(filterTimes(response.times, {
+    dates: last.dates, codes: on, golfers: last.golfers, holes18: last.holes18, window: win,
+  })), [response, last, on, win]);
+  if (!last) return null;
+  const date = last.dates.includes(selectedDate ?? '') ? selectedDate! : last.dates[0];
+  const shown = all.filter((t) => t.date === date);
+  const canAlert = on.some((c) => courseByCode(c)?.tenant);
+  const criteria: Criteria = { dates: last.dates, golfers: last.golfers, codes: on.filter((c) => courseByCode(c)?.tenant), holes18: last.holes18, window: win };
+  const failedTenants = new Set(response?.errors.map((e) => e.tenant));
+  const failed = last.codes.filter((c) => { const tenant = courseByCode(c)?.tenant; return tenant && failedTenants.has(tenant); });
+  const mins = response ? minutesAgo(response.fetched) : null;
+  const changeWindow = (window: [number, number]) => { setForm({ window }); update({ window }); };
+  const reset = () => { changeWindow([300, 1200]); update({ on: last.codes }); };
+  const chip = 'flex min-h-11 shrink-0 items-center gap-1 rounded-full border border-input px-3 text-sm font-medium';
   return (
     <div className="flex h-full flex-col">
-      <PageHeader
-        back={() => go('')}
-        title={title}
-        sub={`${shown.length} ${shown.length === 1 ? 'time' : 'times'}${mins !== null ? ` · updated ${mins === 0 ? 'just now' : `${mins} min ago`}` : ''}`}
-        actions={(
-          <>
-            <IconAction label="Alert me about new times" disabled={!canAlert} onClick={() => setAlertOpen(true)}><BellPlus className="size-5" /></IconAction>
-            <IconAction label="Refresh" disabled={loading} onClick={refresh}><RefreshCw className={cn('size-5', loading && 'animate-spin')} /></IconAction>
-          </>
-        )}
-      />
-
-      {/* Filters: time of day, then each course on or off. */}
-      <div className="flex shrink-0 gap-2 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
-        <button type="button" onClick={() => setTimeOpen(true)} className={cn(chip, 'border-primary bg-accent text-accent-foreground')}>
-          <Clock className="size-3.5" /> {windowName(win)} <ChevronDown className="size-3.5" />
-        </button>
-        {manyCourses && last.codes.map((code) => {
-          const isOn = on.includes(code);
-          return (
-            <button key={code} type="button" aria-pressed={isOn} onClick={() => update({ on: toggle(on, code) })}
-              className={cn(chip, isOn ? 'border-primary bg-primary text-primary-foreground' : 'bg-card text-muted-foreground')}>
-              {code}
-            </button>
-          );
-        })}
+      <PageHeader back={() => go('')} title="Tee times"
+        sub={loading ? 'Checking availability…' : `${all.length} times across ${last.dates.length} ${last.dates.length === 1 ? 'day' : 'days'}${mins !== null ? ` · checked ${mins === 0 ? 'just now' : `${mins} min ago`}` : ''}`}
+        actions={<><IconAction label="Alert me about new times" disabled={!canAlert || !response} onClick={() => setAlertOpen(true)}><BellPlus className="size-5" /></IconAction><IconAction label="Refresh" disabled={loading} onClick={refresh}><RefreshCw className={cn('size-5', loading && 'animate-spin')} /></IconAction></>} />
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 px-4 pb-2 text-sm">
+        <span className="text-muted-foreground">{last.golfers.length ? `${last.golfers[0]}+ spots` : 'Any group size'} · {last.holes18 ? '18 holes' : '9 or 18 holes'}</span>
+        <Button variant="ghost" className="min-h-11 px-2 text-primary" onClick={() => go('')}>Edit search</Button>
       </div>
-
-      {(failed.length > 0 || last.codes.includes('MOS')) && (
-        <p className="mx-4 mb-3 rounded-xl bg-secondary px-3 py-2 text-xs text-secondary-foreground">
-          {failed.length > 0 && `Couldn't load ${failed.join(', ')}. `}
-          {last.codes.includes('MOS') && "Mosholu isn't on TeeItUp, so no live times."}
-        </p>
-      )}
-
-      {manyDates && (
-        <div className="grid shrink-0 gap-2 px-4 pb-2" style={{ gridTemplateColumns: `repeat(${last.dates.length}, minmax(0, 1fr))` }}>
-          {last.dates.map((d) => {
-            const isOn = !hidden.includes(d);
-            return (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={isOn}
-                onClick={() => update({ hidden: isOn ? [...hidden, d] : hidden.filter((x) => x !== d) })}
-                className={cn('min-h-9 rounded-full px-1 text-xs font-semibold', isOn ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}
-              >
-                {dow(d)} {dom(d)} <span className="font-normal opacity-70">· {all.filter((t) => t.date === d).length}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {shown.length === 0 ? (
-        <Empty icon={<SearchX />} title="No tee times match" action={<Button variant="outline" className="min-h-11 rounded-full" onClick={() => setTimeOpen(true)}>Change time of day</Button>}>
-          Try a wider time, more courses, or set an alert for when one opens.
-        </Empty>
-      ) : (
-        <div
-          className="grid min-h-0 flex-1 gap-2 px-4 pb-3"
-          style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))`, gridTemplateRows: 'minmax(0, 1fr)' }}
-        >
-          {visible.map((d) => (
-            <div key={d} className="min-h-0 space-y-1.5 overflow-y-auto">
-              {shown.filter((t) => t.date === d).map((t) => (
-                <Row key={`${t.code}|${t.time}`} t={t} showCode={manyCourses} inGame={grouped.has(`${t.code}|${t.teetime}`)} onOpen={() => setPicked(t)} />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <TimeOfDay open={timeOpen} onOpenChange={setTimeOpen} value={win} onChange={(w) => update({ window: w })} count={(w) => all.filter((t) => visible.includes(t.date) && toMinutes(t.time) >= w[0] && toMinutes(t.time) <= w[1]).length} />
+      <div className="flex shrink-0 gap-2 overflow-x-auto px-4 pb-3">
+        <button type="button" onClick={() => setTimeOpen(true)} className={cn(chip, 'border-primary bg-accent text-accent-foreground')}><Clock className="size-4" />{windowName(win)}<ChevronDown className="size-4" /></button>
+        {last.codes.length > 1 && last.codes.map((code) => <button key={code} type="button" aria-pressed={on.includes(code)} onClick={() => update({ on: toggle(on, code) })}
+          className={cn(chip, on.includes(code) ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+          {courseByCode(code)?.name ?? code}
+        </button>)}
+      </div>
+      {last.dates.length > 1 && <div className="grid shrink-0 gap-2 px-4 pb-3" style={{ gridTemplateColumns: `repeat(${last.dates.length}, minmax(0, 1fr))` }} aria-label="Results date">
+        {last.dates.map((d) => <button key={d} type="button" aria-pressed={d === date} aria-label={`${dayLabel(d)}, ${all.filter((t) => t.date === d).length} tee times`} onClick={() => update({ selectedDate: d })}
+          className={cn('min-h-14 min-w-0 rounded-xl border border-input px-2 py-1.5 text-sm font-semibold', d === date ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+          <span className="block">{dow(d)} {dom(d)}</span><span className="block text-xs font-normal">{all.filter((t) => t.date === d).length} times</span>
+        </button>)}
+      </div>}
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-4">
+        {error && <LoadError message={error} retry={() => void refresh()} />}
+        {failed.length > 0 && <div role="alert" className="rounded-xl bg-orange-soft p-3 text-sm text-orange-strong">Some courses couldn't load: {failed.map((c) => courseByCode(c)?.name ?? c).join(', ')}. Other results are shown.<Button variant="ghost" className="min-h-11 text-inherit" disabled={loading} onClick={refresh}>Retry missing courses</Button></div>}
+        {loading && !response ? <div aria-busy="true" aria-label="Loading tee times" className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-20 rounded-2xl" />)}</div> : response && <>
+          <h2 className="pb-1 text-sm font-semibold">{dayLabel(date)} · {shown.length} {shown.length === 1 ? 'time' : 'times'}</h2>
+          <p className="pb-2 text-sm text-muted-foreground">Availability can change. A proposal or RSVP does not reserve a tee time.</p>
+          {shown.length ? shown.map((t) => <Row key={`${t.code}|${t.teetime}`} t={t} inGame={grouped.has(`${t.code}|${t.teetime}`)} onOpen={() => setPicked(t)} />) :
+            <Empty icon={<SearchX />} title="No tee times match on this day" action={<div className="flex flex-wrap justify-center gap-2"><Button variant="outline" className="min-h-11" onClick={reset}>Reset filters</Button><Button className="min-h-11" onClick={() => go('')}>Edit search</Button></div>}>
+              {all.length ? 'Try another date above, or widen your filters.' : 'Try a wider time, fewer golfers, or more courses. You can also set an alert.'}
+            </Empty>}
+        </>}
+      </div>
+      <TimeOfDay open={timeOpen} onOpenChange={setTimeOpen} value={win} onChange={changeWindow}
+        count={(w) => !response ? 0 : filterTimes(response.times, { ...criteria, window: w }).filter((t) => t.date === date).length} />
       <TimeSheet time={picked} onClose={() => setPicked(null)} />
-      <AlertSetupDialog open={alertOpen} onOpenChange={setAlertOpen} mode="create" criteria={criteria} visible={shown} />
+      <AlertSetupDialog open={alertOpen} onOpenChange={setAlertOpen} mode="create" criteria={criteria} visible={all} />
     </div>
   );
 }
-
 const PRESETS: { label: string; window: [number, number] }[] = [
   { label: 'Any time', window: [300, 1200] },
   { label: 'Early, before 9am', window: [300, 540] },
@@ -428,20 +395,20 @@ const windowName = (w: [number, number]) =>
 /** Time of day: a few common picks, or drag for an exact window. Results update as you go. */
 function TimeOfDay({ open, onOpenChange, value, onChange, count }: {
   open: boolean; onOpenChange: (o: boolean) => void; value: [number, number];
-  onChange: (w: [number, number]) => void; count: (w: [number, number]) => number;
+  onChange: (w: [number, number]) => void; count?: (w: [number, number]) => number;
 }) {
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>Time of day</DrawerTitle>
-          <DrawerDescription>{fmtMinutes(value[0])} to {fmtMinutes(value[1])} · {count(value)} times</DrawerDescription>
+          <DrawerDescription>{fmtMinutes(value[0])} to {fmtMinutes(value[1])}{count && ` · ${count(value)} times`}</DrawerDescription>
         </DrawerHeader>
         <div className="space-y-5 px-5 pt-2">
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((p) => (
               <button key={p.label} type="button" aria-pressed={same(p.window, value)} onClick={() => onChange(p.window)}
-                className={cn('min-h-10 rounded-full border px-3.5 text-sm', same(p.window, value) ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+                className={cn('min-h-11 rounded-full border border-input px-3.5 text-sm', same(p.window, value) ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
                 {p.label}
               </button>
             ))}
@@ -455,7 +422,7 @@ function TimeOfDay({ open, onOpenChange, value, onChange, count }: {
           </div>
         </div>
         <DrawerFooter>
-          <Button className="h-12 rounded-2xl text-base" onClick={() => onOpenChange(false)}>Show {count(value)} times</Button>
+          <Button className="h-12 rounded-2xl text-base" onClick={() => onOpenChange(false)}>{count ? `Show ${count(value)} times` : 'Use these hours'}</Button>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
@@ -463,7 +430,7 @@ function TimeOfDay({ open, onOpenChange, value, onChange, count }: {
 }
 
 export function TeeTimes({ view, alerts }: { view: 'search' | 'results'; alerts: number }) {
-  // Results live in memory; after a reload (say the phone closed the app while you were on TeeItUp) start from the form.
+  // Restore this tab's search after returning from booking or reloading the app.
   const { last } = useStore();
   return view === 'results' && last ? <Results /> : <SearchScreen alerts={alerts} />;
 }

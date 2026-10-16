@@ -28,6 +28,12 @@ export async function accessEmail(req: Request, env: AppEnv['Bindings']): Promis
 export const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const email = await accessEmail(c.req.raw, c.env);
   if (!email) return c.json({ error: 'unauthorized' }, 401);
+  // A tab's local data must never be read or written using another account's credentials.
+  const owner = c.req.header('X-Golf-Member');
+  if (owner && owner !== email) {
+    c.header('X-Golf-Account-Changed', '1');
+    return c.json({ error: 'account changed' }, 409);
+  }
   c.set('email', email);
   // First visit creates the member.
   await c.env.DB.prepare('INSERT OR IGNORE INTO members (email, created_at) VALUES (?, ?)')
