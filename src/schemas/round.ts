@@ -12,7 +12,10 @@ export const Shot = z.object({
 });
 
 export const HoleState = z.object({
+  completed: z.boolean().optional(),
   shots: z.array(Shot),
+  correction: Shot.optional(), // undone stroke, kept until corrected or explicitly discarded
+  puttStarts: z.array(Shot.nullable()).optional(), // saved putt positions for corrections; absent in older rounds
   putts: z.number().int().nonnegative(),
   penalties: z.number().int().nonnegative(),
   adj: z.number().int(), // manual +/- for strokes not marked

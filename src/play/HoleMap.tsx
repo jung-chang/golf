@@ -28,9 +28,11 @@ type Props = {
   hole: Hole;
   from: LngLat; // you, or the tee when you're not on this hole
   here: LngLat | null; // your GPS position, if any
+  savedPosition?: LngLat; // correction origin, independent of current GPS
+  review?: boolean;
   pin: LngLat;
   target: LngLat | null;
-  labels: { pos: LngLat; text: string }[];
+  labels: { pos: LngLat; text: string; offset?: [number, number]; compact?: boolean }[];
   shotLines: [LngLat, LngLat][];
   recenter: number; // bump to re-fit the camera
   onTap: (p: LngLat) => void;
@@ -58,9 +60,10 @@ export function HoleMap(p: Props) {
     const m = map.current;
     if (!ready || !m) return;
     const g = hole.green.center;
-    const pts = [p.from, ...(hole.green.polygon ?? [g]), offset(g, bearing(p.from, g), 15)];
+    const recorded = p.shotLines.flat();
+    const pts = p.review && recorded.length ? [p.from, ...recorded] : [p.from, ...(hole.green.polygon ?? [g]), offset(g, bearing(p.from, g), 15)];
     m.resize();
-    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: 40, bottom: 60, left: 40, right: 40 }, duration: 0 });
+    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? 65 : 40, bottom: 60, left: 40, right: 40 }, duration: 0 });
     // Only on hole change / explicit recenter, not on every GPS tick.
   }, [ready, hole, p.recenter]);
 
@@ -80,7 +83,7 @@ export function HoleMap(p: Props) {
         e.target.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
         setReady(true);
       }}
-      onClick={(e) => p.onTap([e.lngLat.lng, e.lngLat.lat])}
+      onClick={(e) => { if (!p.review) p.onTap([e.lngLat.lng, e.lngLat.lat]); }}
       onContextMenu={(e) => p.onLongPress?.([e.lngLat.lng, e.lngLat.lat])}
     >
       <Source id="hole" type="geojson" data={outlines}>
@@ -92,25 +95,30 @@ export function HoleMap(p: Props) {
       <Source id="shots" type="geojson" data={fc(p.shotLines.map((l) => lineF(l)))}>
         <Layer id="shots" type="line" paint={{ 'line-color': '#ffd400', 'line-width': 2 }} />
       </Source>
-      <Source id="aim" type="geojson" data={fc([lineF(p.target ? [p.from, p.target, p.pin] : [p.from, p.pin])])}>
+      <Source id="aim" type="geojson" data={fc(p.review ? [] : [lineF(p.target ? [p.from, p.target, p.pin] : [p.from, p.pin])])}>
         <Layer id="aim" type="line" paint={{ 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [2, 2] }} />
       </Source>
 
       {p.here && <Marker longitude={p.here[0]} latitude={p.here[1]}><div className="dot-player" /></Marker>}
+      {p.savedPosition && <Marker longitude={p.savedPosition[0]} latitude={p.savedPosition[1]} anchor="bottom">
+        <div role="img" aria-label="Saved stroke position" className="rounded-full border-2 border-white bg-orange-soft px-2 py-1 text-xs font-bold text-orange-strong shadow-md">Saved stroke</div>
+      </Marker>}
       {p.target && (
         <Marker longitude={p.target[0]} latitude={p.target[1]} onClick={(e) => { e.originalEvent.stopPropagation(); p.onClearTarget(); }}>
           <div className="dot-target" aria-label="Clear target" />
         </Marker>
       )}
       {p.labels.map((l, i) => (
-        <Marker key={i} longitude={l.pos[0]} latitude={l.pos[1]}><div className="maplabel">{l.text}</div></Marker>
+        <Marker key={i} longitude={l.pos[0]} latitude={l.pos[1]} offset={l.offset}>
+          <div className={l.compact ? 'grid size-6 place-content-center rounded-full border-2 border-white bg-primary text-xs font-bold text-primary-foreground shadow-md' : 'maplabel'}>{l.text}</div>
+        </Marker>
       ))}
       <Marker
-        longitude={p.pin[0]} latitude={p.pin[1]} anchor="bottom-left" offset={[-4, 0]} draggable
+        longitude={p.pin[0]} latitude={p.pin[1]} anchor="bottom-left" offset={[-4, 0]} draggable={!p.review}
         onClick={(e) => e.originalEvent.stopPropagation()}
         onDragEnd={(e) => p.onPinMove([e.lngLat.lng, e.lngLat.lat])}
       >
-        <div className="pin" aria-label="Pin (drag to move)">⛳</div>
+        <div className="pin" aria-label={p.review ? 'Estimated pin' : 'Pin (drag to move)'}>⛳</div>
       </Marker>
     </MapGL>
   );

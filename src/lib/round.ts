@@ -42,17 +42,27 @@ export function editHole(r: Round, fn: (h: HoleState) => void, holeNo = r.curren
 // You're standing at your ball: that ends the previous shot and starts this one.
 export const markShot = (r: Round, club: string, pos: LngLat, acc: number) =>
   editHole(r, (h) => {
+    const saved = h.correction;
+    h.completed = false;
+    const start = saved?.pos ?? pos;
     const prev = h.shots.at(-1);
-    if (prev && !prev.end) prev.end = pos;
-    h.shots.push({ club, pos, acc: Math.round(acc), t: Date.now(), end: null, mishit: false });
+    if (prev && !prev.end) prev.end = start;
+    h.shots.push({ club, pos: start, acc: saved?.acc ?? Math.round(acc), t: saved?.t ?? Date.now(), end: null, mishit: saved?.mishit ?? false });
+    delete h.correction;
     h.log.push('shot');
   });
 
 // The first putt is from where the last full shot finished.
-export const putt = (r: Round, pos: LngLat | null) =>
+export const putt = (r: Round, pos: LngLat | null, acc?: number, t = Date.now()) =>
   editHole(r, (h) => {
+    h.completed = false;
     const prev = h.shots.at(-1);
-    if (h.putts === 0 && prev && !prev.end && pos) prev.end = pos;
+    const start = h.correction?.pos ?? pos;
+    if (h.putts === 0 && prev && !prev.end && start) prev.end = start;
+    h.puttStarts ??= [];
+    while (h.puttStarts.length < h.putts) h.puttStarts.push(null);
+    h.puttStarts.push(h.correction ? { ...h.correction, club: 'pt', end: null } : pos && acc != null ? { club: 'pt', pos, acc, t, end: null, mishit: false } : null);
+    delete h.correction;
     h.putts++;
     h.log.push('putt');
   });
@@ -68,12 +78,14 @@ export const toggleMishit = (r: Round, i: number) => editHole(r, (h) => { h.shot
 
 export const undo = (r: Round) =>
   editHole(r, (h) => {
+    h.completed = false;
     const op = h.log.pop();
     if (op === 'shot') {
-      h.shots.pop();
+      h.correction = h.shots.pop();
       const prev = h.shots.at(-1);
       if (prev) prev.end = null; // only the shot we just removed could have ended it
     } else if (op === 'putt') {
+      h.correction = h.puttStarts?.pop() ?? undefined;
       h.putts--;
       const prev = h.shots.at(-1);
       if (h.putts === 0 && prev) prev.end = null;
@@ -84,6 +96,8 @@ export const undo = (r: Round) =>
 // Finishing a hole with no putts and an open shot means it went in.
 export const holeDone = (r: Round, pin: LngLat) =>
   editHole(r, (h) => {
+    h.completed = true;
+    delete h.correction;
     const prev = h.shots.at(-1);
     if (prev && !prev.end && h.putts === 0) {
       prev.end = pin;

@@ -43,4 +43,49 @@ describe('round actions', () => {
     r = R.holeDone(r, pin);
     expect(r.holes[1].shots[0].end).toEqual(pin);
   });
+
+  it('corrects a club after walking without changing either shot position or capture quality', () => {
+    const fairway = offset(tee, 180, 220);
+    const walked = offset(tee, 180, 290);
+    let r = R.markShot(R.newRound(course, 'black'), 'dr', tee, 4);
+    r = R.markShot(r, '9i', fairway, 3);
+    const captured = r.holes[1].shots[1];
+    r = R.undo(r);
+    r = Round.parse(JSON.parse(JSON.stringify(r))); // persisted recovery survives reload
+    r = R.markShot(r, '7i', walked, 20);
+    expect(r.holes[1].shots).toHaveLength(2);
+    expect(r.holes[1].shots[0].end).toEqual(fairway);
+    expect(r.holes[1].shots[1]).toEqual({ ...captured, club: '7i' });
+    expect(r.holes[1].correction).toBeUndefined();
+  });
+
+  it('restores the first putt position after walking and keeps later putts from moving the approach endpoint', () => {
+    const green = offset(tee, 180, 310), walked = offset(green, 90, 5);
+    let r = R.markShot(R.newRound(course, 'black'), 'pw', tee, 3);
+    r = R.putt(r, green, 2, 100_000);
+    r = R.undo(r);
+    expect(r.holes[1].shots[0].end).toBeNull();
+    r = R.putt(r, walked, 10, 200_000);
+    expect(r.holes[1].shots[0].end).toEqual(green);
+    expect(r.holes[1].puttStarts![0]).toMatchObject({ pos: green, acc: 2, t: 100_000 });
+    r = R.putt(r, walked, 3, 210_000);
+    r = R.undo(r);
+    r = R.putt(r, tee, 10);
+    expect(r.holes[1].shots[0].end).toEqual(green);
+    expect(r.holes[1].puttStarts![1]?.pos).toEqual(walked);
+    expect(r.holes[1].putts).toBe(2);
+  });
+
+  it('can discard an extra tap and continue at the current ball, including older rounds without putt snapshots', () => {
+    let r = R.markShot(R.newRound(course, 'black'), 'dr', tee, 4);
+    r = R.undo(r);
+    r = R.editHole(r, h => { delete h.correction; });
+    const fairway = offset(tee, 180, 220);
+    r = R.markShot(r, '7i', fairway, 3);
+    expect(r.holes[1].shots[0].pos).toEqual(fairway);
+    r = R.putt(r, fairway);
+    r = R.undo(r);
+    expect(r.holes[1].correction).toBeUndefined();
+    expect(Round.safeParse(r).success).toBe(true);
+  });
 });

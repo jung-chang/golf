@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Shot tracking MVP spike</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="phone">
+    <div class="spike-banner">MVP spike · simulated position &amp; sample stock ranges</div>
+    <div class="map-area">
+      <div id="map" aria-label="Clearview hole 1 interactive course map"></div>
+      <p id="map-fallback" class="map-fallback" role="status" hidden>Map unavailable. You can still choose a club, mark shots, count putts, and undo below.</p>
+      <header><span>Hole 1 <small>Par 4 · Clearview</small></span><div class="views" aria-label="Golf view"><button id="course-view" aria-pressed="true">Course</button><button id="green-view" aria-pressed="false">Green</button></div></header>
+      <button id="recenter" class="recenter" aria-label="Recenter map">↗</button>
+      <div class="map-caption" id="map-caption">Drag to pan · pinch to zoom · two fingers to tilt or rotate</div>
+    </div>
+    <section class="shot-card" aria-label="Shot tracking">
+      <div class="distance-row"><div><strong id="yardage">–</strong><span id="distance-label">yd to center · estimated pin</span></div><button id="club-choice" class="club-choice" aria-label="Choose club"><b id="club-name">7i</b><span id="stock-range">145–160 yd</span></button></div>
+      <div class="yardages" id="front-back"></div>
+      <p class="elevation-note" id="elevation-note"></p>
+      <button id="mark" class="mark" aria-describedby="shot-timing shot-guidance">Start shot · 7i</button>
+      <p id="shot-timing" class="shot-timing">At your ball · tap before you hit</p>
+      <p id="shot-guidance" class="shot-guidance" role="status">Choose your club, then Start shot. At the next ball position, start your next shot to measure the previous one.</p>
+      <div class="secondary"><button id="undo">Undo</button><span id="shot-status" role="status">Ready for your first shot</span><button id="putt" aria-describedby="shot-timing shot-guidance">Start putt</button></div>
+    </section>
+    <details class="spike-controls"><summary>Spike controls &amp; limitations</summary><div>
+      <div class="demo-positions"><button id="demo-approach">Place ball at 150 yd</button><button id="demo-chip">Demo a 22 yd chip</button></div>
+      <label><input id="weak-gps" type="checkbox" /> Simulate weak GPS</label>
+      <label><input id="pause-gps" type="checkbox" /> Pause simulated GPS (expires after 8 seconds)</label>
+      <p id="map-status">Loading map…</p><p id="measurement-status">No completed shot distance yet.</p>
+      <p>Course / Green changes only the camera. Use the demo position buttons to simulate moving to your next ball. Drag the ball or use its arrow keys to explore yardages. Tap the map to measure a target. The estimated pin can move only within the mapped green.</p>
+      <p>Green labels are stored elevation samples—not a surveyed contour map or a putting read. No real GPS, account data, or storage is used. Shot marks exist only until reload.</p>
+    </div></details>
+    <dialog id="clubs"><form method="dialog"><div class="sheet-head"><h2>Club for this shot</h2><button aria-label="Close club choices">Done</button></div></form><div class="intent" aria-label="Shot type"><button id="full-shot" aria-pressed="true">Full swing</button><button id="chip-shot" aria-pressed="false">Chip</button></div><div id="club-list"></div><p>Example total-distance ranges, including roll—not your personal yardages.</p></dialog>
+  </main>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

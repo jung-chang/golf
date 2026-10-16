@@ -1,5 +1,5 @@
 // One round: the scorecard, then every shot hole by hole.
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Flag, Trash2 } from 'lucide-react';
 import { Empty, PageHeader } from '@/components/page';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,9 @@ import { fmtToPar, holeScore, playedHoles, toPar, totalScore } from '@/lib/round
 import { deleteRound, setActive, useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { Round } from '@/schemas/round';
+import { getCourse } from '@/lib/courses';
+
+const HoleReview = lazy(() => import('../play/HoleReview').then(m => ({ default: m.HoleReview })));
 
 /** Score cell: under par in green, bogey in sand, double or worse in tangerine. */
 function scoreClass(score: number, par: number) {
@@ -49,9 +52,12 @@ export function RoundDetail({ id }: { id: string }) {
   const r = useStore((s) => s.rounds[id]);
   const bag = useStore((s) => s.bag);
   const [confirming, setConfirming] = useState(false);
+  const [reviewHole, setReviewHole] = useState<number | null>(null);
   if (!r) return <><PageHeader back={() => go('golf')} title="Round" /><Empty icon={<Flag />} title="Round not found" /></>;
 
   const nums = Object.keys(r.pars).map(Number).sort((a, b) => a - b);
+  const course = getCourse(r.courseId);
+  const reviewed = course?.holes.find(h => h.number === reviewHole);
   const name = (club: string) => bag.clubs.find((c) => c.id === club)?.name ?? club;
   const played = playedHoles(r).length;
   const putts = nums.reduce((s, n) => s + (r.holes[n]?.putts ?? 0), 0);
@@ -75,12 +81,12 @@ export function RoundDetail({ id }: { id: string }) {
         <section className="space-y-2">
           <h2 className="px-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Shots</h2>
           <div className="divide-y rounded-2xl border bg-card">
-            {nums.filter((n) => r.holes[n]?.shots.length || r.holes[n]?.putts).map((n) => {
+            {nums.filter((n) => holeScore(r.holes[n]) > 0).map((n) => {
               const h = r.holes[n];
               return (
-                <div key={n} className="flex gap-3 px-4 py-2.5 text-sm">
+                <div key={n} className="flex flex-wrap gap-3 px-4 py-2.5 text-sm">
                   <span className="w-6 shrink-0 font-semibold tabular-nums">{n}</span>
-                  <span className="flex flex-wrap gap-1.5">
+                  <span className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                     {h.shots.map((s, i) => (
                       <span key={i} className={cn('rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground', s.mishit && 'line-through opacity-60')}>
                         {name(s.club)}{s.end ? ` ${Math.round(shotYards(s)!)}` : ''}
@@ -89,6 +95,7 @@ export function RoundDetail({ id }: { id: string }) {
                     {h.putts > 0 && <span className="rounded-full bg-accent px-2 py-0.5 text-xs text-accent-foreground">{h.putts} {h.putts === 1 ? 'putt' : 'putts'}</span>}
                     {h.penalties > 0 && <span className="rounded-full bg-orange-soft px-2 py-0.5 text-xs text-orange-strong">{h.penalties} pen</span>}
                   </span>
+                  {course?.holes.some(hole => hole.number === n) && <Button variant="ghost" className="min-h-11 w-full justify-start rounded-xl" onClick={() => setReviewHole(n)}>Review hole {n} · map & shots</Button>}
                 </div>
               );
             })}
@@ -107,6 +114,9 @@ export function RoundDetail({ id }: { id: string }) {
           </Button>
         </div>
       </div>
+      {reviewed && <Suspense fallback={<p role="status" className="fixed inset-x-4 bottom-4 z-50 rounded-xl bg-card p-4 shadow-md">Loading hole review…</p>}>
+        <HoleReview key={reviewed.number} hole={reviewed} state={r.holes[reviewed.number]} bag={bag} onClose={() => setReviewHole(null)} />
+      </Suspense>}
     </div>
   );
 }
