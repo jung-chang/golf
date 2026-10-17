@@ -45,6 +45,14 @@ describe('alert setup', () => {
     expect(screen.queryByRole('button', { name: 'View available times' })).toBeNull();
     await screen.findByText('Schedule unavailable. Checks follow the selected frequency.');
   });
+
+  it('shows and saves the exact nine-hole criteria inherited from a search', async () => {
+    const nine: Criteria = { ...criteria, holes18: false, holes: 9 };
+    render(<AlertSetupDialog open mode="create" criteria={nine} onOpenChange={() => {}} />);
+    expect(screen.getByText('9 holes')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Watch for new openings' }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/alerts', { body: { criteria: nine, seen: [], weekdays: [], every: 4 } }));
+  });
 });
 
 it('shows scheduled, paused, expired, and failed check states on saved alerts', async () => {

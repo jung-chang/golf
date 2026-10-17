@@ -78,6 +78,12 @@ describe('filterTimes', () => {
     expect(picked({ holes18: true })).toEqual(['08:00', '10:00', '11:00']);
   });
 
+  it('supports explicit nine-hole searches while preserving legacy either-length alerts', () => {
+    expect(picked({ holes: 9, holes18: false })).toEqual(['09:00', '11:00']);
+    expect(picked({ holes: 18, holes18: true })).toEqual(['08:00', '10:00', '11:00']);
+    expect(picked({ holes18: false })).toEqual(['08:00', '09:00', '10:00', '11:00']);
+  });
+
   it('includes both ends of the time window', () => {
     expect(picked({ window: [480, 600] })).toEqual(['08:00', '09:00', '10:00']);
     expect(picked({ window: [601, 659] })).toEqual([]);

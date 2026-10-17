@@ -177,3 +177,10 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Keep short round labels and four comfortable player targets on one row when they fit. */
+.search-parameters { container-type: inline-size; }
+.search-parameters fieldset { min-inline-size: 0; }
+.search-round-players { display: grid; grid-template-columns: minmax(84px, 1fr) minmax(176px, 1.2fr); gap: 12px; }
+.search-choice { cursor: pointer; touch-action: manipulation; }
+@container (max-width: 280px) { .search-round-players { grid-template-columns: 1fr; } }

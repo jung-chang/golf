@@ -195,7 +195,7 @@ function AlertSheet({ alert, onClose, onEdit, onDelete, onRead }: {
             <DrawerHeader>
               <DrawerTitle>{whenLabel(alert)}</DrawerTitle>
               <DrawerDescription>
-                {alert.criteria.codes.join(', ')} · {windowLabel(alert.criteria.window)} · {alert.criteria.golfers.length ? `${alert.criteria.golfers[0]}+ golfers` : 'any golfers'} · {holesLabel(alert.criteria.holes18)} · checked {everyLabel(alert.every)}
+                {alert.criteria.codes.join(', ')} · {windowLabel(alert.criteria.window)} · {alert.criteria.golfers.length ? `${alert.criteria.golfers[0]}+ golfers` : 'any golfers'} · {holesLabel(alert.criteria.holes18, alert.criteria.holes)} · checked {everyLabel(alert.every)}
               </DrawerDescription>
             </DrawerHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-5">

@@ -16,7 +16,7 @@ export function filterTimes(times: TeeTime[], c: Criteria): TeeTime[] {
       c.dates.includes(t.date)
       && c.codes.includes(t.code)
       && t.spots >= Math.max(1, min)
-      && (!c.holes18 || t.holes.includes(18))
+      && (c.holes ? t.holes.includes(c.holes) : !c.holes18 || t.holes.includes(18))
       && toMinutes(t.time) >= c.window[0]
       && toMinutes(t.time) <= c.window[1])
     .sort((a, b) => a.teetime.localeCompare(b.teetime) || a.code.localeCompare(b.code));

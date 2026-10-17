@@ -30,6 +30,8 @@ export const Criteria = z.object({
   golfers: z.array(z.number().int().min(1).max(4)), // empty = no golfer filter
   codes: z.array(z.string()).min(1),
   holes18: z.boolean(),
+  /** Explicit round length. Absent on older saved searches/alerts (false means either). */
+  holes: z.union([z.literal(9), z.literal(18)]).optional(),
   /** Minutes after midnight NY, [start, end], 15-minute steps. */
   window: z.tuple([z.number().int().min(0).max(1440), z.number().int().min(0).max(1440)]),
 });

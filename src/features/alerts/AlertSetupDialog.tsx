@@ -196,7 +196,7 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
             </fieldset>
 
             <div className="flex min-h-11 items-center gap-3">
-              <Checkbox id="alert-18" checked={draft.holes18} onCheckedChange={(v) => set({ holes18: v === true })} />
+              <Checkbox id="alert-18" checked={draft.holes18} onCheckedChange={(v) => set({ holes18: v === true, holes: undefined })} />
               <Label htmlFor="alert-18">18 holes only</Label>
             </div>
 

@@ -12,7 +12,7 @@ export const dateLabel = (ymd: string) =>
 
 export const timeLabel = (t: TeeTime) => fmtMinutes(toMinutes(t.time));
 
-export const holesLabel = (holes18: boolean) => (holes18 ? '18 holes' : '9 or 18');
+export const holesLabel = (holes18: boolean, holes?: 9 | 18) => holes ? holes + ' holes' : holes18 ? '18 holes' : '9 or 18';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /** "Every Sat, Sun" (week starting Monday). */
@@ -48,7 +48,7 @@ export function CriteriaSummary({ criteria, weekdays = [] }: { criteria: Criteri
       <dt className="text-muted-foreground">Courses</dt>
       <dd>{criteria.codes.join(', ')}</dd>
       <dt className="text-muted-foreground">Holes</dt>
-      <dd>{holesLabel(criteria.holes18)}</dd>
+      <dd>{holesLabel(criteria.holes18, criteria.holes)}</dd>
       <dt className="text-muted-foreground">Window</dt>
       <dd>{windowLabel(criteria.window)}</dd>
     </dl>

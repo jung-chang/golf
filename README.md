@@ -72,6 +72,12 @@ Alert checks run from the hourly cron at 7am, 12pm and 7pm New York time.
 - **Find a time:** choose up to three dates, minimum available spots, time of day,
   and courses. Pick course tiles in four borough panels around Manhattan, or
   open course search to find a course by name, code, or borough.
+  The compact search panel starts collapsed, with the next Saturday and Sunday,
+  four players, 18 holes, and the full day selected for a new search. Swipe the
+  date row to browse. On results, time changes filter loaded availability;
+  changes to dates, round length, or players require **Search with new parameters**.
+  Courses stay fixed until you return to the search page. Existing saved choices
+  are restored when valid; nine-hole searches require nine-hole availability.
   Results use one date at a time, with full course names, holes, availability and
   starting prices when supplied. Search and filter state survives reloading this
   tab or returning from TeeItUp; availability is refreshed when the app resumes.
