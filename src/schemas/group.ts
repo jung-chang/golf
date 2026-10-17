@@ -8,6 +8,9 @@ export const Member = z.object({
   showHandicap: z.boolean(),
   notifyGames: z.boolean(),
   handicap: z.number().nullable(), // estimate, set by the member's own app
+  // Display preferences; null = never chosen.
+  theme: z.enum(['system', 'light', 'dark']).nullable(),
+  temperatureUnit: z.enum(['fahrenheit', 'celsius']).nullable(),
 });
 export type Member = z.infer<typeof Member>;
 export const MemberUpdate = Member.omit({ email: true }).partial();

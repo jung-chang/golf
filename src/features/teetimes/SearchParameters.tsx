@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { dayLabel } from '@/features/games/label';
 import { courseByCode } from '@/lib/nyc';
 import { fmtMinutes } from '@/lib/teetimes';
 import { cn } from '@/lib/utils';
+import { DailyWeatherIcon } from '@/components/daily-weather';
+import { cacheAge, condition, forecastDay, temperature } from '@/lib/weather';
+import { useWeather } from '@/lib/weather-store';
 import { dateOptions, FULL_DAY, type Form } from './search-form';
 
 export function SearchParameters({ form, onChange, onWindow, pending = false, onSearch, loading = false, courses }: {
@@ -14,6 +17,7 @@ export function SearchParameters({ form, onChange, onWindow, pending = false, on
   pending?: boolean; onSearch?: () => void; loading?: boolean; courses?: string[];
 }) {
   const [expanded, setExpanded] = useState(false);
+  const weather = useWeather();
   const id = useId();
   const dateStrip = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -25,30 +29,33 @@ export function SearchParameters({ form, onChange, onWindow, pending = false, on
   const fullDay = form.window[0] === FULL_DAY[0] && form.window[1] === FULL_DAY[1];
   const holes = form.holes ?? (form.holes18 ? 18 : null);
   const dates = form.dates.length ? form.dates.map(dayLabel).join(' + ') : 'Choose dates';
-  return <section className="search-parameters rounded-2xl border bg-card p-3" aria-label="Search parameters">
-    <div className="flex items-center justify-between gap-2">
-      <div className="min-w-0 space-y-0.5">
-        <h2 className="text-sm font-medium">{dates}</h2>
-        <p className="text-xs text-muted-foreground">{form.golfers[0] ?? 4} players · {holes ? `${holes} H` : '9/18 H'} · {fullDay ? 'Full day' : `${fmtMinutes(form.window[0])}–${fmtMinutes(form.window[1])}`}</p>
-        {courses && <p className="text-xs text-muted-foreground">{courses.map(c => courseByCode(c)?.name ?? c).join(' · ')}</p>}
-      </div>
-      <Button type="button" variant="ghost" className="min-h-11 shrink-0 gap-1 px-2" aria-label={expanded ? 'Hide search parameters' : 'Edit search parameters'} aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
-        {expanded ? 'Hide' : 'Edit'}{expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-      </Button>
-    </div>
-    <div id={id} hidden={!expanded} className="mt-3 space-y-3 border-t pt-3">
+  return <section className="search-parameters rounded-2xl border bg-card" aria-label="Search parameters">
+    <button type="button" className="flex w-full items-center justify-between gap-2 rounded-2xl p-3 text-left focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring" aria-label={expanded ? 'Hide search parameters' : 'Edit search parameters'} aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
+      <span className="min-w-0 space-y-0.5">
+        <span className="block text-sm font-medium">{dates}</span>
+        <span className="block text-xs text-muted-foreground">{form.golfers[0] ?? 4} players · {holes ? `${holes} H` : '9/18 H'} · {fullDay ? 'Full day' : `${fmtMinutes(form.window[0])}–${fmtMinutes(form.window[1])}`}</span>
+        {courses && <span className="block text-xs text-muted-foreground">{courses.map(c => courseByCode(c)?.name ?? c).join(' · ')}</span>}
+      </span>
+      <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
+    </button>
+    <div id={id} hidden={!expanded} className="mx-3 mb-3 space-y-3 border-t pt-3">
       <fieldset>
         <legend className="mb-2 text-xs text-muted-foreground">Dates · up to 3</legend>
         <div ref={dateStrip} className="flex snap-x gap-1.5 overflow-x-auto p-1 [scrollbar-width:thin]" aria-label="Search dates">
           {dateOptions().map(d => {
             const selected = form.dates.includes(d);
-            return <label key={d} className="search-choice relative w-14 shrink-0 snap-start">
-              <input type="checkbox" name={`${id}-dates`} value={d} aria-label={dayLabel(d)} checked={selected} disabled={!selected && form.dates.length >= 3}
+            const daily = forecastDay(weather.cache, d, weather.now);
+            return <label key={d} className="search-choice relative shrink-0 basis-[calc((100%-4*0.375rem)/5)] snap-start">
+              <input type="checkbox" name={`${id}-dates`} value={d} aria-label={dayLabel(d)} aria-description={daily ? `${condition(daily.code).label}, high ${temperature(daily.high, weather.unit)}${weather.unit === 'fahrenheit' ? 'F' : 'C'}` : undefined} checked={selected} disabled={!selected && form.dates.length >= 3}
                 onChange={() => onChange({ dates: selected ? form.dates.filter(x => x !== d) : [...form.dates, d].sort() })} className="sr-only peer" />
               <span className="flex min-h-[76px] flex-col items-center justify-center gap-0.5 rounded-xl border px-1 py-1.5 text-xs peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground peer-disabled:opacity-40 peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring">
                 <span>{new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>
                 <span className="text-lg font-medium">{Number(d.slice(8))}</span>
                 <span className="text-[10px] opacity-75">{new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })}</span>
+                {weather.cache && cacheAge(weather.cache, weather.now) !== 'expired' && <>
+                  <DailyWeatherIcon code={daily?.code} />
+                  <span className="min-h-4 text-[11px] font-semibold tabular-nums" aria-hidden="true">{daily ? temperature(daily.high, weather.unit) : '—'}</span>
+                </>}
               </span>
             </label>;
           })}
@@ -84,7 +91,7 @@ export function SearchParameters({ form, onChange, onWindow, pending = false, on
         <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums" aria-hidden="true"><span>5am</span><span>Noon</span><span>8pm</span></div>
       </fieldset>
     </div>
-    {pending && <div className="mt-3 space-y-2 border-t pt-3">
+    {pending && <div className="mx-3 mb-3 space-y-2 border-t pt-3">
       <p role="status" className="text-xs text-muted-foreground">Dates, holes or players changed. Results still use your previous search.</p>
       <Button type="button" className={cn('min-h-11 w-full', loading && 'opacity-70')} disabled={!form.dates.length || loading} onClick={() => { setExpanded(false); onSearch?.(); }}>Search with new parameters</Button>
     </div>}

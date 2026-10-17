@@ -151,6 +151,22 @@ describe('member-owned golf storage', () => {
     vi.mocked(set).mockImplementation(persist);
   });
 
+  it('restores each member\'s own clubs and stock yardages on a fresh device, never another member\'s', async () => {
+    const bags: Record<string, unknown> = {
+      'a@example.test': { clubs: [{ id: '7i', name: '7 Iron', stock: 162, on: true }], useTracked: false, updatedAt: '2026-10-01T00:00:00.000Z' },
+    };
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => url === '/api/bag' && init?.method === 'GET' ? Promise.resolve(reply(bags[email] ?? null)) : base(url, init));
+    let store = await ready();
+    expect(store.getState().bag.clubs).toEqual([{ id: '7i', name: '7 Iron', stock: 162, on: true }]);
+    expect(db.table('golf-meta:a@example.test').get('bag')).toMatchObject({ useTracked: false });
+    vi.resetModules(); email = 'b@example.test';
+    store = await ready();
+    expect(store.getState().owner).toBe('b@example.test');
+    expect(store.getState().bag.clubs.find((c) => c.id === '7i')?.stock).toBe(155); // defaults, not a@'s 162
+    expect(db.table('golf-meta:b@example.test').get('bag')).toBeUndefined();
+  });
+
   it('does not mark the first sync complete until remote history arrives', async () => {
     const remote = deferred<Response>();
     const base = fetchMock.getMockImplementation()!;

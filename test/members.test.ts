@@ -46,8 +46,20 @@ describe('members', () => {
     const db = fakeDb([row('me@x.com', { name: 'Kev', home_course: 'CLR', show_handicap: 1, notify_games: 0, handicap: 12.4 })]);
     const res = await app('me@x.com', db)('/me');
     expect(await res.json()).toEqual({
-      email: 'me@x.com', name: 'Kev', homeCourse: 'CLR', showHandicap: true, notifyGames: false, handicap: 12.4,
+      email: 'me@x.com', name: 'Kev', homeCourse: 'CLR', showHandicap: true, notifyGames: false, handicap: 12.4, theme: null, temperatureUnit: null,
     });
+  });
+
+  it('stores display preferences per member and rejects unknown values', async () => {
+    const db = fakeDb([row('me@x.com', { theme: 'dark', temperature_unit: 'celsius' })]);
+    const call = app('me@x.com', db);
+    expect(await (await call('/me')).json()).toMatchObject({ theme: 'dark', temperatureUnit: 'celsius' });
+    expect((await call('/me', json({ theme: 'light', temperatureUnit: 'fahrenheit' }))).status).toBe(200);
+    expect(db.updates[0].sql).toBe('UPDATE members SET theme = ?, temperature_unit = ? WHERE email = ?');
+    expect(db.updates[0].binds).toEqual(['light', 'fahrenheit', 'me@x.com']);
+    expect((await call('/me', json({ theme: 'neon' }))).status).toBe(400);
+    const list = await (await call('/members')).json() as { theme: unknown; temperatureUnit: unknown }[];
+    expect(list[0]).toMatchObject({ theme: null, temperatureUnit: null });
   });
 
   it('updates only the provided fields with bound values', async () => {

@@ -29,6 +29,7 @@ export function setTheme(theme: Theme) {
   try { localStorage.setItem(KEY, theme); } catch { /* applies for this visit */ }
   apply();
 }
+export const getTheme = () => preference;
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 export const useTheme = () => useSyncExternalStore(subscribe, () => preference);
 export const useResolvedTheme = () => useSyncExternalStore(subscribe, () => resolved);

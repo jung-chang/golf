@@ -15,6 +15,8 @@ type Row = {
   show_handicap: number;
   notify_games: number;
   handicap: number | null;
+  theme: Member['theme'];
+  temperature_unit: Member['temperatureUnit'];
   created_at: string;
 };
 
@@ -25,6 +27,8 @@ const toMember = (row: Row): Member => ({
   showHandicap: row.show_handicap === 1,
   notifyGames: row.notify_games === 1,
   handicap: row.handicap,
+  theme: row.theme ?? null,
+  temperatureUnit: row.temperature_unit ?? null,
 });
 
 // Fixed map from API field to column. Only these names ever reach the SQL text.
@@ -34,6 +38,8 @@ const COLUMNS = {
   showHandicap: 'show_handicap',
   notifyGames: 'notify_games',
   handicap: 'handicap',
+  theme: 'theme',
+  temperatureUnit: 'temperature_unit',
 } as const;
 
 const Update = MemberUpdate.extend({
@@ -79,6 +85,9 @@ app.get('/members', async (c) => {
     ...toMember(row),
     // Handicap is shared only if the member opted in; your own is always yours.
     handicap: row.show_handicap === 1 || row.email === email ? row.handicap : null,
+    // Display preferences are private to each member (see /me).
+    theme: null,
+    temperatureUnit: null,
   })));
 });
 

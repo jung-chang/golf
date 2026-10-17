@@ -17,11 +17,14 @@ import { courseByCode } from '@/lib/nyc';
 import { disablePush, enablePush, needsInstall, pushEnabled, pushSupported } from '@/lib/push';
 import type { Member, MemberUpdate } from '@/schemas/group';
 import { HomeCourseSelect } from './HomeCourseSelect';
+import { TemperatureToggle, WeatherCredit } from '@/components/daily-weather';
+import { setTemperatureUnit, useWeather } from '@/lib/weather-store';
 
 const errorText = (e: unknown) => (e instanceof Error && e.message) || 'Something went wrong';
 const displayName = (m: Member) => m.name || m.email.split('@')[0];
 
 export function Profile() {
+  const weather = useWeather();
   const [me, setMe] = useState<Member | null>(null);
   const [members, setMembers] = useState<Member[] | null>(null);
   const [editing, setEditing] = useState(false);
@@ -147,11 +150,15 @@ export function Profile() {
         <Group title="Appearance">
           <div className="space-y-2 p-4">
             <label htmlFor="app-theme" className="text-sm font-medium">Color theme</label>
-            <select id="app-theme" className="h-12 w-full rounded-xl border border-input bg-background px-3 text-base" value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
+            <select id="app-theme" className="h-12 w-full rounded-xl border border-input bg-background px-3 text-base" value={theme} onChange={(e) => { const theme = e.target.value as Theme; setTheme(theme); void save({ theme }); }}>
               <option value="system">Follow phone setting</option><option value="light">Light</option><option value="dark">Dark</option>
             </select>
             <p className="text-sm text-muted-foreground">Choose the clearest view for the course.</p>
           </div>
+        </Group>
+
+        <Group title="Weather">
+          <Row label="Temperature" sub={<WeatherCredit />}><TemperatureToggle weather={weather} onChange={(temperatureUnit) => { setTemperatureUnit(temperatureUnit); void save({ temperatureUnit }); }} /></Row>
         </Group>
 
         <Group title="Notifications">

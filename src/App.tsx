@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { ACCOUNT_CHANGED, SIGNED_OUT, api } from '@/lib/api';
+import { syncPrefs } from '@/lib/prefs';
+import type { Member } from '@/schemas/group';
 import { LoadingScreen } from '@/components/data-status';
 import { BADGES_CHANGED, useHash, useOnResume } from '@/lib/nav';
 import { TeeTimes } from '@/features/teetimes/TeeTimes';
@@ -85,6 +87,8 @@ export function App() {
   const badges = useBadges(page);
   const signedOut = useSignedOut();
   const [accountChanged, setAccountChanged] = useState(false);
+  // Display preferences follow the signed-in member; fetched once per launch (a new account reloads the app).
+  useEffect(() => { api<Member>('/me').then(syncPrefs).catch(() => { /* keep this device's copy */ }); }, []);
   useEffect(() => {
     const on = () => setAccountChanged(true);
     addEventListener(ACCOUNT_CHANGED, on);
