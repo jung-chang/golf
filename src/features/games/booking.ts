@@ -1,5 +1,5 @@
 // Booking happens on TeeItUp, where you pay. The app opens the course's booking page for that day
-// (TeeItUp has no link to a single time), remembers what you went to book, and when you come back
+// (you still select the exact time there), remembers what you went to book, and when you come back
 // asks whether you did. TeeItUp's receipt goes to your email; the app never sees it.
 import { api } from '@/lib/api';
 import { bookingUrl, courseByCode } from '@/lib/nyc';
@@ -18,8 +18,9 @@ const FRESH_MS = 3 * 60 * 60 * 1000; // after three hours, stop asking
 export function openBooking(p: Omit<Pending, 'at'>) {
   const course = courseByCode(p.code);
   const url = course && bookingUrl(course, p.date);
+  if (!url) return;
   try { localStorage.setItem(KEY, JSON.stringify({ ...p, at: Date.now() })); } catch { /* still opens */ }
-  if (url) window.open(url, '_blank', 'noopener');
+  window.open(url, '_blank', 'noopener');
 }
 
 export function pendingBooking(): Pending | null {

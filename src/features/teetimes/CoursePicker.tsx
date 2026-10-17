@@ -3,10 +3,16 @@ import { Search, X } from 'lucide-react';
 import { IconAction } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { courseByCode, NYC_COURSES, PICKER, type NycCourse } from '@/lib/nyc';
+import { courseByCode, NYC_COURSES, type NycCourse } from '@/lib/nyc';
 import { cn } from '@/lib/utils';
 
 const LIVE_COURSES = NYC_COURSES.filter((c) => c.tenant);
+const REGIONS = [
+  { borough: 'Bronx', color: 'bronx', cells: [['VCT', 1, 1], ['SPL', 2, 1], ['MOS', 1, 2], ['PEL', 2, 2]] },
+  { borough: 'Queens', color: 'queens', cells: [['FLU', 3, 1], ['CLR', 4, 1], ['KIS', 3, 2], ['DGL', 4, 2], ['FOR', 4, 3]] },
+  { borough: 'Staten Island', color: 'staten', cells: [['SLV', 1, 3], ['SSO', 1, 4], ['LTO', 2, 4]] },
+  { borough: 'Brooklyn', color: 'brooklyn', cells: [['DYK', 3, 4], ['MPK', 4, 4]] },
+] as const;
 
 /** Four borough panels meet at Manhattan, with course search available on demand. */
 export function CoursePicker({ selected, onChange }: { selected: string[]; onChange: (codes: string[]) => void }) {
@@ -29,7 +35,7 @@ export function CoursePicker({ selected, onChange }: { selected: string[]; onCha
     searchButton.current?.focus();
   };
 
-  const tile = (c: NycCourse, roomy = false) => {
+  const tile = (c: NycCourse, roomy = false, position?: { column: number; row: number }) => {
     const on = selected.includes(c.code);
     return (
       <button
@@ -38,36 +44,19 @@ export function CoursePicker({ selected, onChange }: { selected: string[]; onCha
         aria-label={`${c.name}, ${c.borough}${c.badge ? `, ${c.badge}` : ''}${c.tenant ? '' : ', no live tee times available'}`}
         aria-pressed={on}
         disabled={!c.tenant}
+        style={position ? { gridColumn: position.column, gridRow: position.row } : undefined}
         onClick={() => onChange(on ? selected.filter((code) => code !== c.code) : [...selected, c.code])}
         className={cn(
-          'relative flex min-h-[76px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl border bg-card px-0.5 py-2 text-center transition-colors active:scale-95',
-          c.badge && 'border-dashed',
+          'course-tile relative flex min-h-11 min-w-0 flex-col items-start justify-center gap-0.5 rounded-xl border px-2 py-2 text-left transition-colors active:scale-95',
           !c.tenant && 'cursor-not-allowed text-muted-foreground',
-          on && 'border-primary bg-primary text-primary-foreground',
-          roomy && 'min-h-20 px-3',
+          roomy && 'min-h-20 bg-card px-3',
         )}
       >
+        {c.badge && <span aria-hidden="true" className="course-badge absolute top-1.5 right-1.5 rounded px-1 text-[8px] leading-3 font-semibold">{c.badge === 'pitch & putt' ? 'P&P' : 'Short'}</span>}
         <span aria-hidden="true" className={cn('text-lg leading-tight font-extrabold tracking-wide', !c.tenant && 'opacity-60')}>{c.code}</span>
-        <span className={cn('max-w-full text-[11px] leading-tight tracking-tight wrap-anywhere', roomy && 'text-sm tracking-normal')}>{c.name}</span>
-        {!c.tenant && <span className="text-[11px] leading-tight">No live times</span>}
+        <span className={cn('max-w-full truncate text-[10px] leading-tight', roomy && 'text-sm')}>{c.name}</span>
+        {!c.tenant && <span className="text-[9px] leading-tight">No live times</span>}
       </button>
-    );
-  };
-
-  const panel = (i: number) => {
-    const { borough, rows } = PICKER[i];
-    return (
-      <section key={borough} aria-label={borough} className={cn('relative min-w-0 rounded-[22px] border-2 border-primary px-1 pt-7 pb-2', i >= 2 && 'pt-8')}>
-        <h3 className={cn('absolute top-2 right-2.5 left-2.5 text-[10px] leading-tight font-semibold tracking-[0.1em] text-muted-foreground uppercase', i % 2 === 1 && 'text-right')}>
-          {borough}
-        </h3>
-        <div className="grid grid-cols-2 content-start gap-1">
-          {rows.flat().map((code, j) => {
-            const course = code ? courseByCode(code) : undefined;
-            return course ? tile(course) : <div key={`empty-${j}`} aria-hidden="true" />;
-          })}
-        </div>
-      </section>
     );
   };
 
@@ -75,7 +64,7 @@ export function CoursePicker({ selected, onChange }: { selected: string[]; onCha
     <section className="space-y-2" aria-label="Course selection">
       <div className="flex min-h-11 items-center justify-between gap-1">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-          <h2 className="text-sm font-semibold">Where</h2>
+          <h2 className="text-base font-semibold">Courses</h2>
           <span className="text-xs text-muted-foreground">{chosen.length} selected</span>
         </div>
         <div className="-mr-2 flex shrink-0 items-center">
@@ -83,7 +72,7 @@ export function CoursePicker({ selected, onChange }: { selected: string[]; onCha
             className="text-primary" onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}>
             {searchOpen ? <X className="size-4" /> : <Search className="size-4" />}
           </IconAction>
-          <Button type="button" variant="ghost" size="sm" aria-label="Select all courses" className="min-h-11 px-2 text-primary" onClick={() => onChange(LIVE_COURSES.map((c) => c.code))}>All</Button>
+          <Button type="button" variant="ghost" size="sm" aria-label="Select all courses" className="min-h-11 px-2 text-primary" onClick={() => onChange(LIVE_COURSES.map((c) => c.code))}>Select all</Button>
           <Button type="button" variant="ghost" size="sm" aria-label="Clear courses" className="min-h-11 px-2 text-primary" onClick={() => onChange([])}>Clear</Button>
         </div>
       </div>
@@ -101,18 +90,18 @@ export function CoursePicker({ selected, onChange }: { selected: string[]; onCha
           <div className="grid grid-cols-2 gap-2">{matches.map((c) => tile(c, true))}</div>
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2.5">{panel(0)}{panel(1)}</div>
-          <div className="relative grid grid-cols-2 gap-2.5">
-            {panel(2)}{panel(3)}
-            <div aria-hidden="true" className="pointer-events-none absolute -top-1.5 left-1/2 grid size-[52px] -translate-x-1/2 -translate-y-1/2 place-content-center rounded-full border-2 border-primary bg-background text-center text-[8px] leading-tight font-bold tracking-[0.1em] text-primary ring-[6px] ring-background">
-              MAN<br />HATTAN
+        <div className="course-picker-map space-y-2">
+          <div className="relative isolate grid aspect-square grid-cols-4 grid-rows-4 gap-1 p-1">
+            {REGIONS.map(region => <section key={region.borough} aria-label={region.borough} data-borough={region.color} className="contents">
+              {region.cells.map(([code, column, row]) => tile(courseByCode(code)!, false, { column, row }))}
+            </section>)}
+            <div aria-hidden="true" className="pointer-events-none col-span-2 col-start-2 row-start-3 grid place-items-center text-foreground">
+              <span className="course-picker-golfer block h-full max-h-24 w-full" />
             </div>
           </div>
-          <p className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
-            <span aria-hidden="true" className="h-3 w-4 rounded-sm border border-dashed border-muted-foreground" />
-            Short course or pitch &amp; putt
-          </p>
+          <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[10px] font-medium text-muted-foreground" aria-label="Borough colors">
+            {REGIONS.map(region => <span key={region.borough} className="flex items-center gap-1"><svg aria-hidden="true" width="9" height="4" viewBox="0 0 9 4"><path d="M2 2H7" strokeWidth="3" strokeLinecap="round" className={`course-outline-${region.color}`} /></svg>{region.borough}</span>)}
+          </div>
         </div>
       )}
 

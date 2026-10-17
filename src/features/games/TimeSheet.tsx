@@ -64,7 +64,7 @@ export function TimeSheet({ time, onClose }: { time: TeeTime | null; onClose: ()
           <DrawerFooter>
             <Button className="h-12 rounded-2xl text-base" onClick={() => setProposing(true)}><Users /> Propose to the group</Button>
             <Button variant="outline" className="h-12 rounded-2xl text-base" onClick={book}><ExternalLink /> Book on TeeItUp</Button>
-            <p className="px-1 text-center text-xs text-muted-foreground">Booking opens TeeItUp to pay. We'll ask when you're back.</p>
+            <p className="px-1 text-center text-xs text-muted-foreground">Opens this course and date. Select {timeLabel(time)} on TeeItUp to book and pay. We'll ask when you're back.</p>
           </DrawerFooter>
         ) : (
           <>

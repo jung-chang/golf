@@ -114,7 +114,7 @@ export function App() {
         </div>
       )}
       {!signedOut && <div className="pt-[env(safe-area-inset-top)]"><UpNext today={badges.today} page={page} /></div>}
-      <main className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto h-full max-w-lg">{screen}</div></main>
+      <main className="min-h-0 flex-1 overflow-y-auto"><div className={cn('mx-auto h-full', page === 'results' ? 'max-w-4xl' : 'max-w-lg')}>{screen}</div></main>
       <nav className="flex border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         {TABS.map(({ id, label, icon: Icon }) => {
           const n = count(id);

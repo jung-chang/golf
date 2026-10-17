@@ -56,9 +56,9 @@ export const PICKER: { borough: Borough; rows: (string | null)[][] }[] = [
 export const courseByCode = (code: string) => NYC_COURSES.find((c) => c.code === code);
 export const courseByFacility = (id: number) => NYC_COURSES.find((c) => c.facilityId === id);
 
-/** TeeItUp has no per-time deep links; open the course's page for that date. */
+/** Open the course/date tee sheet. The root route can redirect to multi-course search. */
 export function bookingUrl(c: NycCourse, date: string): string | undefined {
-  if (c.tenant && c.facilityId) return `https://${c.tenant}.book.teeitup.com/?course=${c.facilityId}&date=${date}`;
+  if (c.tenant && c.facilityId) return `https://${c.tenant}.book.teeitup.com/teetimes?course=${c.facilityId}&date=${encodeURIComponent(date)}`;
   return c.siteUrl;
 }
 

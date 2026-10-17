@@ -13,16 +13,19 @@ function SearchApp() {
   const hash = useHash();
   return <TeeTimes view={hash === 'results' ? 'results' : 'search'} alerts={0} />;
 }
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('tee time search', () => {
-  it('uses the chosen hours, changes results by date, and remembers the search for booking return', async () => {
+  it('compares at most two dates, filters immediately with the inline slider, and remembers booking-return filters', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     const today = nyToday();
     const tomorrow = addDays(today, 1);
+    const third = addDays(today, 2);
     const times = [
       { code: 'CLR', facilityId: 4047, date: today, time: '08:00', teetime: `${today}T12:00:00Z`, spots: 3, holes: [18], priceCents: 5000 },
       { code: 'CLR', facilityId: 4047, date: tomorrow, time: '10:00', teetime: `${tomorrow}T14:00:00Z`, spots: 1, holes: [18], priceCents: 5000 },
       { code: 'CLR', facilityId: 4047, date: today, time: '15:00', teetime: `${today}T19:00:00Z`, spots: 4, holes: [18], priceCents: 5000 },
+      { code: 'CLR', facilityId: 4047, date: third, time: '09:00', teetime: `${third}T13:00:00Z`, spots: 2, holes: [18], priceCents: 5000 },
     ];
     apiMock.mockImplementation(async (path) => {
       if (path === '/me') return { email: 'golfer@example.test', name: 'Golfer', homeCourse: 'CLR' };
@@ -34,21 +37,44 @@ describe('tee time search', () => {
     render(<SearchApp />);
     fireEvent.click(screen.getByRole('button', { name: /^Today,/ }));
     fireEvent.click(screen.getByRole('button', { name: dayLabel(tomorrow) }));
+    fireEvent.click(screen.getByRole('button', { name: dayLabel(third) }));
     fireEvent.click(screen.getByRole('button', { name: 'Morning' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Find tee times' }).hasAttribute('disabled')).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: 'Find tee times' }));
     await screen.findByRole('button', { name: /8:00am.*Clearview/ });
     expect(screen.queryByRole('button', { name: /3:00pm.*Clearview/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /10:00am.*Clearview/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: `${dayLabel(tomorrow)}, 1 tee times` }));
     await screen.findByRole('button', { name: /10:00am.*Clearview/ });
-    expect(screen.queryByRole('button', { name: /8:00am.*Clearview/ })).toBeNull();
+    expect(screen.getAllByRole('region', { name: /tee times$/ })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: `${dayLabel(third)}, 1 tee times` }).hasAttribute('disabled')).toBe(false);
+    const requests = apiMock.mock.calls.filter(([path]) => path.startsWith('/tee-times')).length;
+    screen.getByRole('slider', { name: 'End time' }).focus();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'End time' }), { key: 'PageDown' });
+    expect(screen.getByRole('slider', { name: 'End time' }).getAttribute('aria-valuetext')).toBe('9:30am');
+    expect(screen.queryByRole('button', { name: /10:00am.*Clearview/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /8:00am.*Clearview/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'End time' }), { key: 'End' });
+    expect(screen.getByRole('button', { name: /3:00pm.*Clearview/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: `${dayLabel(third)}, 1 tee times` }));
+    expect(screen.getByRole('button', { name: /8:00am.*Clearview/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /10:00am.*Clearview/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /9:00am.*Clearview/ })).toBeTruthy();
+    expect(screen.getAllByRole('region', { name: /tee times$/ })).toHaveLength(2);
+    expect(screen.getByText('First 10:00am')).toBeTruthy(); // unshown day remains summarized
+    fireEvent.change(screen.getByRole('combobox', { name: 'Left column day' }), { target: { value: third } });
+    expect(screen.getByRole('combobox', { name: 'Right column day' }).getAttribute('aria-label')).toBe('Right column day');
+    expect(Reflect.get(screen.getByRole('combobox', { name: 'Left column day' }), 'value')).toBe(third);
+    expect(Reflect.get(screen.getByRole('combobox', { name: 'Right column day' }), 'value')).toBe(today);
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Left column day' }));
+    fireEvent.click(screen.getByRole('button', { name: `${dayLabel(tomorrow)}, 1 tee times` }));
+    expect(apiMock.mock.calls.filter(([path]) => path.startsWith('/tee-times'))).toHaveLength(requests);
     const saved = JSON.parse(sessionStorage.getItem('golf.teetimes.results')!);
-    expect(saved.last.window).toEqual([300, 720]);
-    expect(saved.selectedDate).toBe(tomorrow);
+    expect(saved.last.window).toEqual([300, 1200]);
+    expect(saved.visibleDates).toEqual([tomorrow, today]);
     expect(saved.last.codes).toEqual(['CLR']);
+    fireEvent.click(screen.getByRole('button', { name: `${dayLabel(tomorrow)}, 1 tee times` }));
+    expect(screen.getAllByRole('region', { name: /tee times$/ })).toHaveLength(2); // tapping a shown day selects its replacement column
     fireEvent.click(screen.getByRole('button', { name: 'Edit search' }));
     await screen.findByRole('heading', { name: 'Time of day' });
-    expect(screen.getByRole('button', { name: 'Morning' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Any time' }).getAttribute('aria-pressed')).toBe('true');
   });
 });

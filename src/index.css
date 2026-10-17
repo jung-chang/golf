@@ -43,9 +43,19 @@
   --chart-3: oklch(0.78 0.1 80);
   --chart-4: oklch(0.6 0.2 27);
   --chart-5: oklch(0.45 0.06 200);
+  --course-bronx: #2b805a;
+  --course-queens: #577629;
+  --course-staten: #287e78;
+  --course-brooklyn: #657027;
+  --course-selected-ink: #fff;
 }
 
 :root[data-theme="dark"] {
+    --course-bronx: #75c69c;
+    --course-queens: #abc975;
+    --course-staten: #69bcb3;
+    --course-brooklyn: #bcc96e;
+    --course-selected-ink: #10231a;
     --background: oklch(0.19 0.022 158);
     --foreground: oklch(0.95 0.015 85);
     --card: oklch(0.23 0.026 158);
@@ -127,6 +137,33 @@
     outline: 3px solid var(--ring);
     outline-offset: 3px;
   }
+}
+
+/* Borough colors identify the map outline; filled tiles identify selections. */
+[data-borough="bronx"] { --course-tone: var(--course-bronx); }
+[data-borough="queens"] { --course-tone: var(--course-queens); }
+[data-borough="staten"] { --course-tone: var(--course-staten); }
+[data-borough="brooklyn"] { --course-tone: var(--course-brooklyn); }
+.course-outline-bronx { stroke: var(--course-bronx); }
+.course-outline-queens { stroke: var(--course-queens); }
+.course-outline-staten { stroke: var(--course-staten); }
+.course-outline-brooklyn { stroke: var(--course-brooklyn); }
+.course-tile {
+  background: color-mix(in oklab, var(--course-tone, var(--primary)) 6%, var(--card));
+  border-color: color-mix(in oklab, var(--course-tone, var(--primary)) 18%, var(--border));
+  color: var(--foreground);
+}
+.course-tile[aria-pressed="true"] {
+  background: var(--course-tone, var(--primary));
+  border-color: var(--course-tone, var(--primary));
+  color: var(--course-selected-ink);
+}
+.course-tile:disabled { opacity: 0.55; }
+.course-badge { background: var(--orange-soft); color: var(--orange-strong); }
+.course-picker-golfer {
+  background: currentColor;
+  -webkit-mask: url('/course-picker-golfer.png') center / contain no-repeat;
+  mask: url('/course-picker-golfer.png') center / contain no-repeat;
 }
 
 /* Shot-tracking map markers (MapLibre renders these outside React's styling). */
