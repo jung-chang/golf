@@ -75,6 +75,9 @@ export const Alert = z.object({
   paused: z.boolean(),
   createdAt: z.string(),
   checkedAt: z.string().nullable(),
+  attemptedAt: z.string().nullable().optional(),
+  checkFailed: z.boolean().optional(),
+  nextCheckAt: z.string().nullable().optional(),
 });
 export type Alert = z.infer<typeof Alert>;
 export const NewAlert = Alert.pick({ criteria: true, seen: true })

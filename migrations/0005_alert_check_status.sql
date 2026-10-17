@@ -1,0 +1,2 @@
+ALTER TABLE alerts ADD COLUMN attempted_at TEXT;
+ALTER TABLE alerts ADD COLUMN check_failed INTEGER NOT NULL DEFAULT 0;

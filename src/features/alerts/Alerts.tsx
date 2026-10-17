@@ -9,7 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api';
 import { badgesChanged, closeSheet, go, openSheet, useOnResume } from '@/lib/nav';
-import { enablePush, pushEnabled, pushSupported } from '@/lib/push';
+import { enablePush, needsInstall, pushEnabled, pushSupported } from '@/lib/push';
+import { alertCheckLabel } from '@/lib/alert-schedule';
 import { daysOut } from '@/lib/nyc';
 import { cn } from '@/lib/utils';
 import { timeKey, type TeeTime } from '@/schemas/teetimes';
@@ -31,9 +32,9 @@ export function Alerts({ focusId }: { focusId?: string }) {
   const [editing, setEditing] = useState<Alert | null>(null);
 
   const reload = useCallback(() => {
-    api<Alert[]>('/alerts').then(setAlerts).catch((e) => setError(errorText(e)));
+    api<Alert[]>('/alerts').then(list => { setAlerts(list); setError(null); }).catch((e) => setError(errorText(e)));
   }, []);
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { reload(); const timer = window.setInterval(reload, 60_000); return () => clearInterval(timer); }, [reload]);
   useOnResume(reload);
 
   useEffect(() => {
@@ -54,7 +55,8 @@ export function Alerts({ focusId }: { focusId?: string }) {
   const setPaused = async (alert: Alert, paused: boolean) => {
     setAlerts((list) => list?.map((a) => (a.id === alert.id ? { ...a, paused } : a)) ?? null);
     try {
-      await api(`/alerts/${alert.id}`, { method: 'PUT', body: { paused } });
+      const updated = await api<Alert>(`/alerts/${alert.id}`, { method: 'PUT', body: { paused } });
+      setAlerts(list => list?.map(a => a.id === alert.id ? updated : a) ?? null);
     } catch (e) {
       toast.error(errorText(e));
       reload();
@@ -100,7 +102,7 @@ export function Alerts({ focusId }: { focusId?: string }) {
         {push === 'unsupported' && (
           <div className="flex items-start gap-3 rounded-2xl bg-secondary p-4 text-sm text-secondary-foreground">
             <BellOff className="mt-0.5 size-5 shrink-0" />
-            <p>On iPhone, add this app to your Home Screen to get notified.</p>
+            <p>{needsInstall() ? 'Add this app to your Home Screen, then enable phone notifications.' : 'Phone notifications are unavailable in this browser.'}</p>
           </div>
         )}
         {push === 'off' && (
@@ -128,9 +130,11 @@ export function Alerts({ focusId }: { focusId?: string }) {
                   {alert.unread.length > 0 && <span className="shrink-0 rounded-full bg-orange px-2 text-xs leading-5 font-semibold text-orange-foreground">{alert.unread.length} new</span>}
                 </span>
                 <span className="block truncate text-sm text-muted-foreground">{alert.criteria.codes.join(', ')} · {windowLabel(alert.criteria.window)}</span>
+                <AlertStatus alert={alert} />
+                <span className="block text-xs text-muted-foreground">{push === 'on' ? 'Phone notifications on' : 'Phone notifications off'}</span>
               </span>
             </button>
-            <Switch aria-label={alert.paused ? 'Resume alert' : 'Pause alert'} checked={!alert.paused} onCheckedChange={(on) => setPaused(alert, !on)} />
+            <Switch aria-label={alert.paused ? 'Resume alert' : 'Pause alert'} disabled={expired(alert)} checked={!alert.paused && !expired(alert)} onCheckedChange={(on) => setPaused(alert, !on)} />
           </div>
         ))}
       </div>
@@ -195,13 +199,14 @@ function AlertSheet({ alert, onClose, onEdit, onDelete, onRead }: {
               </DrawerDescription>
             </DrawerHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-5">
+              <div className="pb-3"><AlertStatus alert={alert} /></div>
               <h3 className="pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Open now · tap to book</h3>
               {matches === null ? (
                 <div className="space-y-1.5 py-1">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
               ) : matches === 'error' ? (
                 <p className="py-2 text-sm text-destructive">Couldn't load times. Try again in a moment.</p>
               ) : all.length === 0 ? (
-                <p className="py-2 text-sm text-muted-foreground">Nothing matches right now. We'll ping you when something opens.</p>
+                <p className="py-2 text-sm text-muted-foreground">Nothing matches right now. New openings appear after a successful check.</p>
               ) : (
                 <div className="divide-y">
                   {all.slice(0, showAll ? undefined : 8).map((t) => (
@@ -222,4 +227,13 @@ function AlertSheet({ alert, onClose, onEdit, onDelete, onRead }: {
       </DrawerContent>
     </Drawer>
   );
+}
+
+function AlertStatus({ alert }: { alert: Alert }) {
+  const next = alert.nextCheckAt ? alertCheckLabel(alert.nextCheckAt) : null;
+  return <span className="block space-y-0.5 text-xs text-muted-foreground">
+    <span className="block">{expired(alert) ? 'Expired' : alert.paused ? 'Paused' : `${everyLabel(alert.every)} · ${next ? `${alert.checkedAt ? 'Next scheduled check' : 'First check scheduled'}: ${next}` : 'Schedule unavailable'}`}</span>
+    {alert.checkFailed && <span className="block text-orange-strong">Couldn’t refresh all courses.{!alert.paused && next ? ` Retrying ${next}.` : ''}</span>}
+    <span className="block">{alert.checkedAt ? `Last successful check: ${alertCheckLabel(alert.checkedAt)}` : 'No successful checks yet'}</span>
+  </span>;
 }

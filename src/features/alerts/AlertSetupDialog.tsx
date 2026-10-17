@@ -8,8 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Toggle } from '@/components/ui/toggle';
 import { api } from '@/lib/api';
-import { enablePush, pushEnabled, pushSupported } from '@/lib/push';
+import { enablePush, needsInstall, pushEnabled, pushSupported } from '@/lib/push';
 import { MAX_DAYS, NYC_COURSES, nyToday, weekdayOf } from '@/lib/nyc';
+import { alertCheckLabel } from '@/lib/alert-schedule';
 import { fmtMinutes } from '@/lib/teetimes';
 import { timeKey, type Criteria, type TeeTime } from '@/schemas/teetimes';
 import { CriteriaSummary, EVERY_OPTIONS, TimeRow, dateLabel, repeatLabel, windowLabel } from './shared';
@@ -47,8 +48,26 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
   // Repeating watches the same days of the week as the chosen dates, every week.
   const days = [...new Set((mode === 'edit' ? draft : criteria).dates.map(weekdayOf))];
   const repeatDays = repeat ? days : [];
-  const [matches, setMatches] = useState<Matches | null>(null);
+  const [matches, setMatches] = useState<Matches | 'error' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [nextCheck, setNextCheck] = useState<string | null>(null);
+  const [scheduleState, setScheduleState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [phonePush, setPhonePush] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const refresh = () => {
+      setScheduleState('loading');
+      api<{ nextCheckAt: string | null }>('/alerts/schedule', { body: { criteria: mode === 'edit' ? draft : criteria, seen: [], weekdays: repeatDays, every } })
+        .then(result => { if (active) { setNextCheck(result.nextCheckAt); setScheduleState('ready'); } })
+        .catch(() => { if (active) setScheduleState('error'); });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    pushEnabled().then(on => { if (active) setPhonePush(on); }).catch(() => {});
+    return () => { active = false; clearInterval(timer); };
+  }, [open, mode, draft, criteria, repeat, every]);
 
   useEffect(() => {
     if (open) {
@@ -61,7 +80,7 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
   useEffect(() => {
     if (!open || mode !== 'edit' || !alertId) return;
     setMatches(null);
-    api<Matches>(`/alerts/${alertId}/matches?force=1`).then(setMatches).catch(() => setMatches({ fresh: [], seen: [] }));
+    api<Matches>(`/alerts/${alertId}/matches?force=1`).then(setMatches).catch(() => setMatches('error'));
   }, [open, mode, alertId]);
 
   const set = (patch: Partial<Criteria>) => setDraft((d) => ({ ...d, ...patch }));
@@ -71,12 +90,12 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
     setBusy(true);
     try {
       // Push first: the permission prompt has to come straight from this tap.
-      let pushError: string | undefined;
+      let pushError: string | undefined = pushSupported() ? undefined : needsInstall() ? 'Add the app to your Home Screen to enable phone notifications.' : 'Push is not supported on this device.';
       if (pushSupported() && !(await pushEnabled())) {
         try { await enablePush(); } catch (e) { pushError = errorText(e); }
       }
       await api('/alerts', { body: { criteria, seen: visible.map(timeKey), weekdays: repeatDays, every } });
-      toast.success(pushError ? `Alert set. Notifications are off: ${pushError}` : 'Alert set. We will tell you when new times open.');
+      toast.success(pushError ? `Alert saved. Phone notifications off: ${pushError}` : 'Watching for new openings. Existing times won’t trigger a notification.');
       onSaved?.();
       onOpenChange(false);
     } catch (e) {
@@ -106,16 +125,17 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>{mode === 'edit' ? 'Edit alert' : 'Alert me about new times'}</DrawerTitle>
+          <DrawerTitle>{mode === 'edit' ? 'Edit alert' : visible.length ? `${visible.length} matching tee ${visible.length === 1 ? 'time is' : 'times are'} available` : 'No matching times right now'}</DrawerTitle>
           <DrawerDescription>
             {mode === 'edit'
               ? 'Change what this alert watches for.'
               // Everything showing now counts as seen: only times that open up later alert you.
-              : `${visible.length ? `${visible.length} ${visible.length === 1 ? 'time matches' : 'times match'} now. ` : ''}You'll hear only about new ones.`}
+              : visible.length ? 'View them now, or watch for new openings.' : 'We’ll notify you when new openings are found at a scheduled check.'}
           </DrawerDescription>
         </DrawerHeader>
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pt-1 pb-2">
+        {mode === 'create' && visible.length > 0 && <Button variant="outline" className="min-h-11" onClick={() => onOpenChange(false)}>View available times</Button>}
         {mode === 'create' ? (
           <CriteriaSummary criteria={criteria} />
         ) : (
@@ -219,12 +239,20 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
           </select>
         </div>
 
+        <div className="space-y-1 text-sm" role="status" aria-label="Alert schedule">
+          <p>{scheduleState === 'loading' ? 'Checking schedule…' : scheduleState === 'error' ? 'Schedule unavailable. Checks follow the selected frequency.' : nextCheck ? `Next scheduled check: ${alertCheckLabel(nextCheck)}` : 'No checks scheduled: the selected dates have passed.'}</p>
+          <p className="text-xs text-muted-foreground">Existing times won’t trigger a notification. New openings are checked on this schedule, not instantly.</p>
+          <p className="text-xs text-muted-foreground">{phonePush ? 'Phone notifications on' : needsInstall() ? 'Phone notifications off. Add this app to your Home Screen, then enable notifications.' : pushSupported() ? mode === 'create' ? 'Phone notifications off. We’ll ask permission when you save.' : 'Phone notifications off. Enable them from Alerts.' : 'Phone notifications unavailable on this device.'}</p>
+        </div>
+
         {mode === 'edit' && (
           <section className="grid gap-1">
             <h3 className="text-sm font-medium">Matching now</h3>
             <div className="grid max-h-56 gap-1 overflow-y-auto">
               {matches === null ? (
                 <p className="text-sm text-muted-foreground">Checking live times…</p>
+              ) : matches === 'error' ? (
+                <p className="text-sm text-destructive">Couldn’t refresh matching times. Your saved alert is unchanged.</p>
               ) : matches.fresh.length + matches.seen.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No times match right now.</p>
               ) : (
@@ -243,7 +271,7 @@ export function AlertSetupDialog({ open, onOpenChange, mode, criteria, visible =
           {mode === 'create' ? (
             <>
               <Button variant="outline" className="h-12 flex-1 rounded-2xl" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-              <Button className="h-12 flex-[2] rounded-2xl text-base" onClick={createSave} disabled={busy}>Set alert</Button>
+              <Button className="h-12 flex-[2] rounded-2xl text-base" onClick={createSave} disabled={busy}>Watch for new openings</Button>
             </>
           ) : (
             <>

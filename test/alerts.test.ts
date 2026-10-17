@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getTeeTimes } from '../worker/teetimes';
 import { notify } from '../worker/push';
+import { nextAlertCheck } from '../src/lib/alert-schedule';
 import { alertDates, isDue, newMatches, nextSeen, runAlerts } from '../worker/alerts';
 import type { Env } from '../worker/env';
 import type { Criteria, TeeTime } from '../src/schemas/teetimes';
@@ -187,7 +188,10 @@ describe('runAlerts', () => {
     vi.mocked(getTeeTimes).mockResolvedValue({ times: [], fetched: {}, errors: [{ tenant: 'golf-nyc', date: '2026-10-14' }] });
     const { env, writes } = fakeEnv([row({ seen: JSON.stringify([timeKey(t)]) })]);
     await runAlerts(env, NOON_NY);
-    expect(JSON.parse(writes.find((w) => w.sql.startsWith('UPDATE alerts'))!.args[0] as string)).toEqual([timeKey(t)]);
+    const update = writes.find((w) => w.sql.startsWith('UPDATE alerts'))!;
+    expect(JSON.parse(update.args[0] as string)).toEqual([timeKey(t)]);
+    expect(update.args[4]).toBe(1);
+    expect(update.sql).toContain('ELSE checked_at');
   });
 
   it('takes stock quietly of the extra weeks on a repeating alert\'s first check', async () => {
@@ -219,5 +223,23 @@ describe('runAlerts', () => {
     await runAlerts(env, NOON_NY);
     expect(getTeeTimes).not.toHaveBeenCalled();
     expect(writes).toEqual([{ sql: 'UPDATE alerts SET paused = 1 WHERE id = ?', args: ['old'] }]);
+  });
+});
+
+describe('next scheduled check', () => {
+  const schedule = (every: 1 | 4 | 12 = 1) => ({ every, weekdays: [6], criteria: criteria(), paused: false });
+  it('uses fixed clock times, including the exact-hour boundary and quiet hours', () => {
+    expect(nextAlertCheck(schedule(4), new Date('2026-10-14T14:59:00Z'))).toBe('2026-10-14T15:00:00.000Z');
+    expect(nextAlertCheck(schedule(4), new Date('2026-10-14T15:00:00Z'))).toBe('2026-10-14T19:00:00.000Z');
+    expect(nextAlertCheck(schedule(), new Date('2026-10-15T01:01:00Z'))).toBe('2026-10-15T10:00:00.000Z');
+  });
+  it('follows both daylight-saving transitions', () => {
+    expect(nextAlertCheck(schedule(12), new Date('2026-11-01T00:00:00Z'))).toBe('2026-11-01T12:00:00.000Z');
+    expect(nextAlertCheck(schedule(12), new Date('2026-03-08T01:00:00Z'))).toBe('2026-03-08T11:00:00.000Z');
+  });
+  it('does not schedule paused, expired, or last-day alerts beyond their final date', () => {
+    expect(nextAlertCheck({ ...schedule(), paused: true }, NOON_NY)).toBeNull();
+    expect(nextAlertCheck({ ...schedule(), weekdays: [], criteria: criteria({ dates: ['2026-10-13'] }) }, NOON_NY)).toBeNull();
+    expect(nextAlertCheck({ ...schedule(), weekdays: [], criteria: criteria({ dates: ['2026-10-14'] }) }, new Date('2026-10-15T01:01:00Z'))).toBeNull();
   });
 });

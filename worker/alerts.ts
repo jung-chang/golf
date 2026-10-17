@@ -9,18 +9,8 @@ import { notify } from './push';
 import { getTeeTimes } from './teetimes';
 import type { AppEnv, Env } from './env';
 
-/** New York hours each frequency checks at; quiet overnight. */
-export const CHECK_HOURS: Record<Alert['every'], number[]> = {
-  1: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
-  4: [7, 11, 15, 19],
-  12: [7, 19],
-};
-
-/** Whether an alert checked every `every` hours is due on this (hourly) cron tick. */
-export function isDue(every: Alert['every'], now: Date): boolean {
-  const { hour, minute } = nyClock(now);
-  return minute < 15 && CHECK_HOURS[every].includes(hour);
-}
+import { CHECK_HOURS, isDue, nextAlertCheck } from '../src/lib/alert-schedule';
+export { isDue } from '../src/lib/alert-schedule';
 
 /** The dates an alert watches that are still today or later. */
 export function alertDates(alert: Pick<Alert, 'criteria' | 'weekdays'>, now = new Date()): string[] {
@@ -58,20 +48,25 @@ export function nextSeen(seen: string[], matches: TeeTime[], errors: TeeTimesRes
 
 type Row = {
   id: string; email: string; criteria: string; seen: string; weekdays: string; unread: string; every: number;
-  paused: number; created_at: string; checked_at: string | null;
+  paused: number; created_at: string; checked_at: string | null; attempted_at?: string | null; check_failed?: number;
 };
 
-const toAlert = (r: Row): Alert => Alert.parse({
-  id: r.id,
-  criteria: JSON.parse(r.criteria),
-  seen: JSON.parse(r.seen),
-  weekdays: JSON.parse(r.weekdays ?? '[]'),
-  every: r.every ?? 4,
-  unread: JSON.parse(r.unread ?? '[]'),
-  paused: !!r.paused,
-  createdAt: r.created_at,
-  checkedAt: r.checked_at,
-});
+const toAlert = (r: Row): Alert => {
+  const alert = Alert.parse({
+    id: r.id,
+    criteria: JSON.parse(r.criteria),
+    seen: JSON.parse(r.seen),
+    weekdays: JSON.parse(r.weekdays ?? '[]'),
+    every: r.every ?? 4,
+    unread: JSON.parse(r.unread ?? '[]'),
+    paused: !!r.paused,
+    createdAt: r.created_at,
+    checkedAt: r.checked_at,
+    attemptedAt: r.attempted_at ?? null,
+    checkFailed: !!r.check_failed,
+  });
+  return { ...alert, nextCheckAt: nextAlertCheck(alert) };
+};
 
 const day = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
 const describe = (t: TeeTime) => `${day(t.date)} ${fmtMinutes(toMinutes(t.time))} ${t.code} (${t.spots})`;
@@ -101,11 +96,13 @@ export async function runAlerts(env: Env, now: Date): Promise<void> {
   for (const { row, alert, live } of work) {
     const criteria = { ...alert.criteria, dates: live };
     const matches = filterTimes(times, criteria);
+    const checkFailed = errors.some(e => live.includes(e.date) && criteria.codes.some(code => courseByCode(code)?.tenant === e.tenant));
     const known = new Set(alert.seen);
     // First check of a repeating alert: times on the weeks it wasn't set up from are already there, not new.
     const firstCheck = !alert.checkedAt && alert.weekdays.length > 0;
     const fresh = matches.filter((t) => !known.has(timeKey(t)) && !(firstCheck && !alert.criteria.dates.includes(t.date)));
-    const listed = new Set(matches.map(timeKey));
+    const seenAfter = nextSeen(alert.seen, matches, errors);
+    const listed = new Set(seenAfter);
     const unread = [...new Set([...alert.unread.filter((k) => listed.has(k)), ...fresh.map(timeKey)])];
     if (fresh.length) {
       const shown = fresh.slice(0, 4).map(describe);
@@ -118,8 +115,8 @@ export async function runAlerts(env: Env, now: Date): Promise<void> {
         tag: `alert-${alert.id}`,
       });
     }
-    await env.DB.prepare('UPDATE alerts SET seen = ?1, unread = ?2, checked_at = ?3 WHERE id = ?4')
-      .bind(JSON.stringify(nextSeen(alert.seen, matches, errors)), JSON.stringify(unread), checkedAt, alert.id).run();
+    await env.DB.prepare('UPDATE alerts SET seen = ?1, unread = ?2, checked_at = CASE WHEN ?5 = 0 THEN ?3 ELSE checked_at END, attempted_at = ?3, check_failed = ?5 WHERE id = ?4')
+      .bind(JSON.stringify(seenAfter), JSON.stringify(unread), checkedAt, alert.id, checkFailed ? 1 : 0).run();
   }
 }
 
@@ -127,6 +124,13 @@ const app = new Hono<AppEnv>();
 
 const owned = (c: Context<AppEnv>, id: string) =>
   c.env.DB.prepare('SELECT * FROM alerts WHERE id = ? AND email = ?').bind(id, c.get('email')).first<Row>();
+
+// Read-only schedule preview uses the same clock and rules as the cron.
+app.post('/schedule', async (c) => {
+  const parsed = NewAlert.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json(bad(parsed.error), 400);
+  return c.json({ nextCheckAt: nextAlertCheck({ ...parsed.data, paused: false }) });
+});
 
 app.get('/', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT * FROM alerts WHERE email = ? ORDER BY created_at DESC')
@@ -151,7 +155,7 @@ app.post('/', async (c) => {
   await c.env.DB.prepare(`INSERT INTO alerts (id, email, criteria, seen, weekdays, every, unread, paused, created_at, checked_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', 0, ?7, NULL)`)
     .bind(alert.id, c.get('email'), JSON.stringify(alert.criteria), JSON.stringify(alert.seen), JSON.stringify(alert.weekdays), alert.every, alert.createdAt).run();
-  return c.json(alert);
+  return c.json({ ...alert, nextCheckAt: nextAlertCheck(alert) });
 });
 
 app.put('/:id', async (c) => {
