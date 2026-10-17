@@ -8,6 +8,7 @@ import { LoadingScreen } from '@/components/data-status';
 import { BADGES_CHANGED, useHash, useOnResume } from '@/lib/nav';
 import { TeeTimes } from '@/features/teetimes/TeeTimes';
 import { Games } from '@/features/games/Games';
+import { Simulators } from '@/features/simulators/Simulators';
 import { Alerts } from '@/features/alerts/Alerts';
 import { Profile } from '@/features/profile/Profile';
 import { Welcome } from '@/features/profile/Welcome';
@@ -23,7 +24,7 @@ const PlayScreen = lazy(() => import('./golf/GolfApp').then((m) => ({ default: m
 
 // Three places: find a time (alerts are saved searches, so they live here), the group's games, and you.
 const TABS = [
-  { id: '', label: 'Tee times', icon: CalendarSearch, pages: ['', 'results', 'alerts'] },
+  { id: '', label: 'Tee times', icon: CalendarSearch, pages: ['', 'results', 'alerts', 'simulators'] },
   { id: 'games', label: 'Games', icon: Users, pages: ['games'] },
   { id: 'profile', label: 'You', icon: UserRound, pages: ['profile', 'golf'] },
 ] as const;
@@ -98,6 +99,7 @@ export function App() {
   let screen;
   if (page === 'golf') screen = <Suspense fallback={<LoadingScreen />}><Golf page={rest[0]} arg={rest[1]} /></Suspense>;
   else if (page === 'games') screen = <Games focusId={rest[0]} />;
+  else if (page === 'simulators') screen = <Simulators />;
   else if (page === 'alerts') screen = <Alerts focusId={rest[0]} />;
   else if (page === 'profile') screen = <Profile />;
   else screen = <TeeTimes view={page === 'results' ? 'results' : 'search'} alerts={badges.alerts} />;

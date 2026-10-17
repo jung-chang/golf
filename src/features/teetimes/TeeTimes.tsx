@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertSetupDialog } from '@/features/alerts/AlertSetupDialog';
 import { TimeSheet } from '@/features/games/TimeSheet';
+import { SearchModes } from '@/features/simulators/Simulators';
 import { CoursePicker } from './CoursePicker';
 import { dayLabel } from '@/features/games/label';
 import { api } from '@/lib/api';
@@ -165,6 +166,7 @@ function SearchScreen({ alerts }: { alerts: number }) {
   useHomeCourse();
   return <div className="flex h-full flex-col">
     <PageHeader title="Tee times" actions={<IconAction label="Alerts" count={alerts} onClick={() => go('alerts')}><Bell className="size-5" /></IconAction>} />
+    <SearchModes />
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-2 pb-4">
       <SearchParameters form={form} onChange={setForm} />
       <CoursePicker selected={form.codes} onChange={(codes) => setForm({ codes })} />

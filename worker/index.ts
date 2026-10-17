@@ -12,6 +12,7 @@ import members from './members';
 import push from './push';
 import rounds from './rounds';
 import teetimes from './teetimes';
+import simulators from './simulators';
 
 const app = new Hono<AppEnv>().basePath('/api');
 app.use('*', secureHeaders(), sameOrigin, auth);
@@ -38,6 +39,7 @@ app.get('/badges', async (c) => {
   });
 });
 app.route('/tee-times', teetimes);
+app.route('/simulators', simulators);
 app.route('/games', games);
 app.route('/alerts', alerts);
 app.route('/push', push);
