@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centroid, distYd, frontBack, offset, pointInPolygon, type LngLat } from '../src/lib/geo';
+import { centroid, distM, distYd, frontBack, offset, pointAhead, pointInPolygon, type LngLat } from '../src/lib/geo';
 import { bestFix } from '../src/play/useGeolocation';
 
 const me: LngLat = [-73.79, 40.78];
@@ -31,5 +31,17 @@ describe('bestFix', () => {
     const ball = offset(me, 0, 200);
     const fixes = [{ pos: me, acc: 3, t: 1000 }, { pos: ball, acc: 5, t: 4000 }];
     expect(bestFix(fixes, 4500)?.pos).toEqual(ball);
+  });
+});
+
+describe('pointAhead', () => {
+  it('finds the spot on the centerline a given distance ahead of you', () => {
+    const tee: LngLat = [-73.79, 40.78];
+    const bend = offset(tee, 0, 200);
+    const green = offset(bend, 90, 150);
+    const p = pointAhead([tee, bend, green], tee, 230)!;
+    expect(distM(tee, p)).toBeCloseTo(230, 0);
+    expect(p[0]).toBeGreaterThan(bend[0]); // past the dogleg
+    expect(pointAhead([tee, bend, green], tee, 1000)).toBeNull();
   });
 });

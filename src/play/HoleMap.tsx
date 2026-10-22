@@ -5,7 +5,7 @@ import { setWorkerUrl } from 'maplibre-gl';
 // let Vite build the worker as its own entry and hand MapLibre the URL.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import MapGL, { Layer, Marker, Source, type MapRef, type StyleSpecification } from 'react-map-gl/maplibre';
-import { bearing, bounds, midpoint, offset, type LngLat } from '../lib/geo';
+import { bearing, bounds, distM, midpoint, offset, type LngLat } from '../lib/geo';
 import type { Hole } from '../schemas/course';
 
 setWorkerUrl(workerUrl);
@@ -28,6 +28,7 @@ type Props = {
   hole: Hole;
   from: LngLat; // you, or the tee when you're not on this hole
   here: LngLat | null; // your GPS position, if any
+  hereAcc?: number; // its accuracy, meters (the pale blue halo)
   savedPosition?: LngLat; // correction origin, independent of current GPS
   review?: boolean;
   pin: LngLat;
@@ -35,6 +36,11 @@ type Props = {
   labels: { pos: LngLat; text: string; offset?: [number, number]; compact?: boolean }[];
   shotLines: [LngLat, LngLat][];
   recenter: number; // bump to re-fit the camera
+  view?: 'hole' | 'green'; // the whole hole from you, or zoomed on the green
+  padBottom?: number; // px hidden under the bottom card
+  hazards?: { pos: LngLat; text: string; type: 'bunker' | 'water' }[];
+  shotTags?: { pos: LngLat; text: string }[]; // this hole's shots, labelled where they were hit from
+  onTargetMove?: (p: LngLat) => void;
   onTap: (p: LngLat) => void;
   onClearTarget: () => void;
   onPinMove: (p: LngLat) => void;
@@ -44,6 +50,8 @@ type Props = {
 const fc = (features: Feature[]): FeatureCollection => ({ type: 'FeatureCollection', features });
 const lineF = (pts: LngLat[], props = {}): Feature => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: pts } });
 const ringF = (poly: LngLat[], type: string) => lineF([...poly, poly[0]], { type });
+const circleF = (c: LngLat, m: number): Feature => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon',
+  coordinates: [Array.from({ length: 49 }, (_, i) => offset(c, (i % 48) * 7.5, m))] } });
 
 export function HoleMap(p: Props) {
   const map = useRef<MapRef>(null);
@@ -55,17 +63,29 @@ export function HoleMap(p: Props) {
     ...(hole.green.polygon ? [ringF(hole.green.polygon, 'green')] : []),
   ]), [hole]);
 
+  // Re-frame once you've walked somewhere new (e.g. from the last green to this tee),
+  // but not on GPS jitter, so panning around to look at the hole isn't undone.
+  const framedFrom = useRef<LngLat | null>(null);
+  const [moved, setMoved] = useState(0);
+  useEffect(() => {
+    if (framedFrom.current && distM(framedFrom.current, p.from) > 40) setMoved((n) => n + 1);
+  }, [p.from[0], p.from[1]]);
+
   // Rotate so you're at the bottom looking up the hole at the green.
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
+    framedFrom.current = p.from;
     const g = hole.green.center;
     const recorded = p.shotLines.flat();
-    const pts = p.review && recorded.length ? [p.from, ...recorded] : [p.from, ...(hole.green.polygon ?? [g]), offset(g, bearing(p.from, g), 15)];
+    const green = [...(hole.green.polygon ?? [g]), p.pin];
+    const pts = p.review && recorded.length ? [p.from, ...recorded]
+      : p.view === 'green' ? [...green, offset(g, bearing(p.from, g), 12), offset(g, bearing(p.from, g) + 180, 12)]
+      : [p.from, ...green, offset(g, bearing(p.from, g), 15)];
     m.resize();
-    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? 65 : 40, bottom: 60, left: 40, right: 40 }, duration: 0 });
-    // Only on hole change / explicit recenter, not on every GPS tick.
-  }, [ready, hole, p.recenter]);
+    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? 65 : 80, bottom: (p.padBottom ?? 0) + 40, left: 56, right: 56 }, duration: p.review ? 0 : 400 });
+    // Only on hole change / view change / explicit recenter, not on every GPS tick.
+  }, [ready, hole, p.recenter, p.view, p.padBottom, moved]);
 
   return (
     <MapGL
@@ -92,33 +112,57 @@ export function HoleMap(p: Props) {
           'line-width': ['match', ['get', 'type'], 'green', 2, 1],
         }} />
       </Source>
+      <Source id="acc" type="geojson" data={fc(p.here && p.hereAcc ? [circleF(p.here, Math.max(p.hereAcc, 3))] : [])}>
+        <Layer id="acc-fill" type="fill" paint={{ 'fill-color': '#1a73e8', 'fill-opacity': 0.15 }} />
+        <Layer id="acc-edge" type="line" paint={{ 'line-color': '#1a73e8', 'line-opacity': 0.4, 'line-width': 1 }} />
+      </Source>
       <Source id="shots" type="geojson" data={fc(p.shotLines.map((l) => lineF(l)))}>
-        <Layer id="shots" type="line" paint={{ 'line-color': '#ffd400', 'line-width': 2 }} />
+        <Layer id="shots-casing" type="line" layout={{ 'line-cap': 'round' }} paint={{ 'line-color': '#fff', 'line-width': 5 }} />
+        <Layer id="shots" type="line" layout={{ 'line-cap': 'round' }} paint={{ 'line-color': '#f26522', 'line-width': 3 }} />
       </Source>
       <Source id="aim" type="geojson" data={fc(p.review ? [] : [lineF(p.target ? [p.from, p.target, p.pin] : [p.from, p.pin])])}>
-        <Layer id="aim" type="line" paint={{ 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [2, 2] }} />
+        <Layer id="aim-casing" type="line" layout={{ 'line-join': 'round' }} paint={{ 'line-color': 'rgba(0,0,0,0.3)', 'line-width': 4 }} />
+        <Layer id="aim" type="line" layout={{ 'line-join': 'round' }} paint={{ 'line-color': '#fff', 'line-width': 2 }} />
       </Source>
 
       {p.here && <Marker longitude={p.here[0]} latitude={p.here[1]}><div className="dot-player" /></Marker>}
       {p.savedPosition && <Marker longitude={p.savedPosition[0]} latitude={p.savedPosition[1]} anchor="bottom">
         <div role="img" aria-label="Saved stroke position" className="rounded-full border-2 border-white bg-orange-soft px-2 py-1 text-xs font-bold text-orange-strong shadow-md">Saved stroke</div>
       </Marker>}
+      {p.shotTags?.map((t, i) => (
+        <Marker key={`st${i}`} longitude={t.pos[0]} latitude={t.pos[1]} anchor="left" offset={[-6, 0]}>
+          <div className="shot-tag"><i />{t.text}</div>
+        </Marker>
+      ))}
       {p.target && (
-        <Marker longitude={p.target[0]} latitude={p.target[1]} onClick={(e) => { e.originalEvent.stopPropagation(); p.onClearTarget(); }}>
-          <div className="dot-target" aria-label="Clear target" />
+        <Marker longitude={p.target[0]} latitude={p.target[1]} draggable={!!p.onTargetMove}
+          onDragEnd={(e) => p.onTargetMove?.([e.lngLat.lng, e.lngLat.lat])}
+          onClick={(e) => { e.originalEvent.stopPropagation(); p.onClearTarget(); }}>
+          <div className="dot-target" aria-label="Target (drag to move, tap to reset)"><i /></div>
         </Marker>
       )}
+      {p.hazards?.map((h, i) => (
+        <Marker key={`hz${i}`} longitude={h.pos[0]} latitude={h.pos[1]}>
+          <div className={`maplabel hazard-${h.type}`}>{h.text}</div>
+        </Marker>
+      ))}
       {p.labels.map((l, i) => (
         <Marker key={i} longitude={l.pos[0]} latitude={l.pos[1]} offset={l.offset}>
-          <div className={l.compact ? 'grid size-6 place-content-center rounded-full border-2 border-white bg-primary text-xs font-bold text-primary-foreground shadow-md' : 'maplabel'}>{l.text}</div>
+          <div className={l.compact ? 'grid size-6 place-content-center rounded-full border-2 border-white bg-primary text-xs font-bold text-primary-foreground shadow-md' : p.review ? 'maplabel review' : 'maplabel'}>{l.text}</div>
         </Marker>
       ))}
       <Marker
-        longitude={p.pin[0]} latitude={p.pin[1]} anchor="bottom-left" offset={[-4, 0]} draggable={!p.review}
+        longitude={p.pin[0]} latitude={p.pin[1]} anchor="bottom-left" offset={[-4, 2]} draggable={!p.review}
         onClick={(e) => e.originalEvent.stopPropagation()}
         onDragEnd={(e) => p.onPinMove([e.lngLat.lng, e.lngLat.lat])}
       >
-        <div className="pin" aria-label={p.review ? 'Estimated pin' : 'Pin (drag to move)'}>⛳</div>
+        <div className="pin" aria-label={p.review ? 'Estimated pin' : 'Pin (drag to move)'}>
+          <svg width="26" height="34" viewBox="0 0 26 34" aria-hidden="true">
+            <ellipse cx="4" cy="31" rx="4" ry="2" fill="rgba(0,0,0,0.45)" />
+            <path d="M4 31V3" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M5 3l18 6-18 6z" fill="#e53935" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" />
+          </svg>
+        </div>
       </Marker>
     </MapGL>
   );

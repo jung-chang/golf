@@ -135,3 +135,26 @@ export function median(xs: number[]): number | null {
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
+
+// Where the hole's centerline is `m` meters from `from`, looking ahead of you:
+// the default aim point when the green is out of reach. Null if the line never gets that far.
+export function pointAhead(line: LngLat[], from: LngLat, m: number): LngLat | null {
+  const P = projector(from);
+  const pts = line.map(P.xy);
+  const start = nearestOnLine(from, line).along;
+  let run = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, ay] = pts[i];
+    const [bx, by] = pts[i + 1];
+    const len = Math.hypot(bx - ax, by - ay);
+    // Step along the segment (past the point nearest you) until you're `m` away.
+    for (let s = 0; s <= len; s += 1) {
+      if (run + s < start) continue;
+      const t = len ? s / len : 0;
+      const x = ax + t * (bx - ax), y = ay + t * (by - ay);
+      if (Math.hypot(x, y) >= m) return P.ll([x, y]);
+    }
+    run += len;
+  }
+  return null;
+}

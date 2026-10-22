@@ -89,3 +89,21 @@ describe('round actions', () => {
     expect(Round.safeParse(r).success).toBe(true);
   });
 });
+
+describe('setPutts', () => {
+  it('finishes the hole with a putt count, ends the approach on the green, and can be corrected', () => {
+    const tee = course.holes[0].path![0];
+    const green = course.holes[0].green.center;
+    let r = R.markShot(R.newRound(course, course.tees[0].id), 'dr', tee, 3);
+    r = R.setPutts(r, 2, green, green);
+    expect(r.holes[1]).toMatchObject({ putts: 2, completed: true });
+    expect(r.holes[1].shots[0].end).toEqual(green);
+    expect(R.holeScore(r.holes[1])).toBe(3);
+    r = R.setPutts(r, 3, null, green); // fixed later, from anywhere
+    expect(R.holeScore(r.holes[1])).toBe(4);
+    expect(r.holes[1].shots[0].end).toEqual(green);
+    r = R.setPutts(r, 0, null, green);
+    expect(R.holeScore(r.holes[1])).toBe(1);
+    expect(r.holes[1].log).toEqual(['shot', 'holed']);
+  });
+});

@@ -78,7 +78,7 @@ describe('profile and game recovery', () => {
     await screen.findByText('Nothing planned');
     expect(screen.queryByRole('alert')).toBeNull();
   });
-  it('explains starting at the ball, measuring at the next ball, putting, and undo', () => {
+  it('explains starting at the ball, measuring at the next ball, and undo', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
     const course = getCourse('clearview-park')!;
     const round = newRound(course, course.tees[0].id);
@@ -90,12 +90,13 @@ describe('profile and game recovery', () => {
       fixture.state.rounds = { [round.id]: saveRoundMock.mock.lastCall![0] };
       view.rerender(<Play roundId={round.id} />);
     };
-    expect(screen.getByText('At your ball · tap before you hit')).toBeTruthy();
-    expect(screen.getByText('Next stroke 1')).toBeTruthy();
+    const guidance = () => screen.getByRole('status', { name: 'Shot guidance' }).textContent;
+    expect(guidance()).toBe('At your ball? Tap Shot before you swing.');
+    expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#1');
     fireEvent.click(screen.getByRole('button', { name: /Start shot ·/ }));
     refresh();
-    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toContain('Shot 1 started. Hit, then walk to your ball.');
-    expect(screen.getByText('Next stroke 2')).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toBe('Driver · 0 y so far · tap Shot at your ball');
+    expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#2');
     expect(fixture.state.rounds[round.id].holes[round.current].shots[0]).toMatchObject({ pos: start, end: null });
     clock.mockReturnValue(102_000);
     fixture.fix = { ...fixture.fix, pos: [fixture.fix.pos[0] + 0.0001, fixture.fix.pos[1]] };
@@ -107,14 +108,25 @@ describe('profile and game recovery', () => {
     expect(shots).toHaveLength(2);
     expect(shots[0].end).toEqual(nextBall);
     expect(shots[1].pos).toEqual(nextBall);
-    fireEvent.click(screen.getByRole('button', { name: 'Start putt' }));
-    refresh();
-    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toContain('Putt 1 counted.');
     fireEvent.click(screen.getByRole('button', { name: 'Undo last action' }));
     refresh();
-    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toContain('Stroke removed.');
-    expect(screen.getByRole('button', { name: 'Save correction · Putt' })).toBeTruthy();
-    expect(fixture.state.rounds[round.id].holes[round.current].shots[1].end).toBeNull();
+    expect(guidance()).toContain('Stroke removed.');
+    expect(screen.getByRole('button', { name: 'Save correction · Driver' })).toBeTruthy();
+    expect(fixture.state.rounds[round.id].holes[round.current].shots[0].end).toBeNull();
+  });
+  it('finishes a hole from the putt count, ends the approach where you stand, and moves on', async () => {
+    const course = getCourse('clearview-park')!;
+    const round = markShot(newRound(course, course.tees[0].id), '7i', course.holes[0].path![0], 2);
+    fixture.state.rounds = { [round.id]: round };
+    const green = [...course.holes[0].green.center] as [number, number];
+    fixture.fix = { pos: green, acc: 3, t: Date.now() };
+    render(<Play roundId={round.id} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Putts (finishes the hole)' }));
+    fireEvent.click(await screen.findByRole('button', { name: '2 putts' }));
+    const saved = saveRoundMock.mock.lastCall![0];
+    expect(saved.holes[1]).toMatchObject({ putts: 2, completed: true });
+    expect(saved.holes[1].shots[0].end).toEqual(green);
+    expect(saved.current).toBe(course.holes[1].number);
   });
   it('restores saved yardage after walking, survives remount, and corrects without moving the shot', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
@@ -142,6 +154,7 @@ describe('profile and game recovery', () => {
     view.unmount();
     view = render(<Play roundId={round.id} />);
     expect(view.container.querySelector('.text-6xl')!.textContent).toBe(originalYards);
+    fireEvent.click(screen.getByRole('button', { name: /^Change club/ }));
     fireEvent.click(screen.getByRole('button', { name: /^7i/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save correction · 7 Iron' }));
     refresh();
@@ -159,31 +172,14 @@ describe('profile and game recovery', () => {
     fixture.state.rounds = { [round.id]: round };
     render(<Play roundId={round.id} />);
     await screen.findByText(/GPS: Location permission denied/);
-    fireEvent.click(screen.getByRole('button', { name: 'Start putt' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Putts (finishes the hole)' }));
+    fireEvent.click(await screen.findByRole('button', { name: '1 putt' }));
     expect(saveRoundMock.mock.lastCall?.[0].holes[round.current].putts).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: 'Hole tools and penalties' }));
     await screen.findByRole('dialog');
     fireEvent.click(screen.getByRole('button', { name: 'Add a penalty stroke' }));
     expect(saveRoundMock.mock.lastCall?.[0].holes[round.current].penalties).toBe(1);
     expect(screen.getByRole('button', { name: 'Close sheet' })).toBeTruthy();
-  });
-  it('keeps the putter selected through GPS drift and ignores a rapid second putt tap', () => {
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
-    const course = getCourse('clearview-park')!;
-    const round = newRound(course, course.tees[0].id);
-    fixture.state.rounds = { [round.id]: round };
-    fixture.fix = { pos: [...course.holes[0].green.center], acc: 2, t: 100_000 };
-    const view = render(<Play roundId={round.id} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start putt' }));
-    fixture.state.rounds = { [round.id]: saveRoundMock.mock.lastCall![0] };
-    fixture.fix = { ...fixture.fix, pos: [...course.holes[0].path![0]] }; // drift outside green
-    view.rerender(<Play roundId={round.id} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start putt' }));
-    expect(saveRoundMock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: /Start shot ·/ })).toBeNull();
-    clock.mockReturnValue(103_000);
-    fireEvent.click(screen.getByRole('button', { name: 'Start putt' }));
-    expect(saveRoundMock.mock.lastCall![0].holes[round.current].putts).toBe(2);
   });
   it('keeps a completed hole review available after moving to the next tee', () => {
     const course = getCourse('clearview-park')!;
@@ -192,7 +188,8 @@ describe('profile and game recovery', () => {
     round = { ...round, current: course.holes[1].number };
     fixture.state.rounds = { [round.id]: round };
     render(<Play roundId={round.id} />);
-    expect(screen.getByText('Next stroke 1')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#1');
+    fireEvent.click(screen.getByRole('button', { name: 'Hole tools and penalties' }));
     fireEvent.click(screen.getByRole('button', { name: 'Review hole 1 · shots & yardages' }));
     expect(screen.getByRole('dialog', { name: 'Hole 1 · Par 4' })).toBeTruthy();
     expect(screen.getByText(/Hole complete/)).toBeTruthy();

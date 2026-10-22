@@ -8,7 +8,8 @@ export function LoadingScreen({ label = 'Loading your golf…' }: { label?: stri
 export function LoadError({ message, retry = () => void load() }: { message: string; retry?: () => void }) {
   return <div role="alert" className="m-4 space-y-3 rounded-2xl border bg-card p-5"><p className="font-semibold">Couldn't load this screen</p><p className="text-sm text-muted-foreground">{message}</p><Button variant="outline" className="min-h-11" onClick={retry}><RefreshCw />Try again</Button></div>;
 }
-export function SyncStatus() {
+// `quiet`: only speak up when something needs you (the play screen).
+export function SyncStatus({ quiet = false }: { quiet?: boolean }) {
   const status = useStore((s) => s.syncStatus);
   const failedSave = useStore((s) => s.saveError);
   const loaded = useStore((s) => s.loaded);
@@ -16,6 +17,7 @@ export function SyncStatus() {
   const saving = useStore((s) => s.saving);
   const error = useStore((s) => s.error);
   if (!loaded) return error ? <LoadError message={error} /> : <LoadingScreen label="Opening saved golf data…" />;
+  if (quiet && loaded && !failedSave && status !== 'error') return null;
   const retry = failedSave || status === 'error' || status === 'pending';
   const text = failedSave ? 'Not saved on this phone. Keep the app open and retry.'
     : saving ? 'Saving on this phone…'

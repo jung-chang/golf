@@ -104,3 +104,19 @@ export const holeDone = (r: Round, pin: LngLat) =>
       h.log.push('holed');
     }
   });
+
+// "I took n putts": finishes the hole in one step, replacing any putts already
+// counted. Your position on the green ends the approach; 0 putts means it went in.
+export const setPutts = (r: Round, n: number, pos: LngLat | null, pin: LngLat, holeNo = r.current) =>
+  editHole(r, (h) => {
+    const prev = h.shots.at(-1);
+    if (prev && h.log.includes('holed')) prev.end = null; // set by holing out, not by where you stood
+    h.log = h.log.filter((op) => op !== 'putt' && op !== 'holed');
+    delete h.correction;
+    h.putts = n;
+    h.puttStarts = Array.from({ length: n }, () => null);
+    if (prev && n === 0) { prev.end = pin; h.log.push('holed'); }
+    if (prev && n > 0 && !prev.end && pos) prev.end = pos;
+    for (let i = 0; i < n; i++) h.log.push('putt');
+    h.completed = true;
+  }, holeNo);
