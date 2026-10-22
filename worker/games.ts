@@ -2,10 +2,11 @@
 // and the leaderboard from rounds started from the game.
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { gameEvent, icsStamp } from '../src/features/games/calendar';
 import { capacity, gameLabel, ins, timeLabel } from '../src/features/games/label';
 import { BookTime, Game, GameTime, GameUpdate, NewGame, NewTime, RsvpStatus, type GameScore } from '../src/schemas/group';
 import { Round } from '../src/schemas/round';
-import { addDays, courseByCode, nyClock, nyToday } from '../src/lib/nyc';
+import { addDays, nyClock, nyToday } from '../src/lib/nyc';
 import { playedHoles, toPar, totalScore } from '../src/lib/round';
 import { bad } from './rounds';
 import { notify } from './push';
@@ -254,22 +255,16 @@ app.put('/:id', async (c) => {
   return c.json(await loadGame(c.env, id));
 });
 
-// A calendar event for the game; the phone offers "Add to Calendar".
+// The game as an .ics event: an iPhone offers "Add to Calendar" (Apple Calendar). Google gets a link instead.
 app.get('/:id/ics', async (c) => {
   const game = await loadGame(c.env, c.req.param('id'));
   if (!game) return c.json({ error: 'not found' }, 404);
-  const start = new Date(game.times[0].teetime);
-  const end = new Date(Date.parse(game.times.at(-1)!.teetime) + (game.holes === 18 ? 270 : 135) * 60_000);
-  const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const e = gameEvent(game);
   const text = (s: string) => s.replace(/[\\;,]/g, (ch) => `\\${ch}`).replace(/\n/g, '\\n');
-  const name = courseByCode(game.code)?.name ?? game.code;
-  const teeTimes = game.times.length > 1 ? `Tee times ${game.times.map(timeLabel).join(', ')}\n` : '';
   const ics = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//golf//tee times//EN', 'BEGIN:VEVENT',
-    `UID:${game.id}@golf`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(start)}`, `DTEND:${stamp(end)}`,
-    `SUMMARY:${text(`Golf: ${name} (${game.holes} holes)`)}`,
-    `LOCATION:${text(`${name} Golf Course, New York`)}`,
-    `DESCRIPTION:${text(`${teeTimes}With ${names(game) || 'the group'}${game.note ? `\n${game.note}` : ''}`)}`,
+    `UID:${game.id}@golf`, `DTSTAMP:${icsStamp(new Date())}`, `DTSTART:${icsStamp(e.start)}`, `DTEND:${icsStamp(e.end)}`,
+    `SUMMARY:${text(e.title)}`, `LOCATION:${text(e.location)}`, `DESCRIPTION:${text(e.details)}`,
     'END:VEVENT', 'END:VCALENDAR', '',
   ].join('\r\n');
   return c.body(ics, 200, { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': 'inline; filename="tee-time.ics"' });

@@ -17,6 +17,7 @@ import { toMinutes } from '@/lib/teetimes';
 import { cn } from '@/lib/utils';
 import type { Game, GameTime, Member } from '@/schemas/group';
 import { capacity, countdown, dayLabel, gameLabel, ins, type Phase, timeLabel } from './label';
+import { googleCalendarUrl } from './calendar';
 import { Leaderboard } from './Leaderboard';
 import { openBooking } from './booking';
 
@@ -255,10 +256,15 @@ function GameDetail({ game, phase, me, members, actions }: { game: Game; phase: 
         <div className="flex flex-wrap gap-x-1 border-t pt-2">
           <Button variant="ghost" className="min-h-11 text-primary" onClick={() => share(game)}><Share2 /> Share</Button>
           {phase !== 'played' && imIn && (
-            // Same window: an iPhone home-screen app keeps its sign-in, and the phone offers "Add to Calendar".
-            <a href={`/api/games/${game.id}/ics`} className={cn(buttonVariants({ variant: 'ghost' }), 'min-h-11 text-primary')}>
-              <CalendarPlus /> Calendar
-            </a>
+            <>
+              {/* Same window: an iPhone home-screen app keeps its sign-in, and the phone offers "Add to Calendar". */}
+              <a href={`/api/games/${game.id}/ics`} className={cn(buttonVariants({ variant: 'ghost' }), 'min-h-11 text-primary')}>
+                <CalendarPlus /> Apple Calendar
+              </a>
+              <a href={googleCalendarUrl(game)} target="_blank" rel="noopener" className={cn(buttonVariants({ variant: 'ghost' }), 'min-h-11 text-primary')}>
+                <CalendarPlus /> Google Calendar
+              </a>
+            </>
           )}
           {phase !== 'played' && game.createdBy === me.email && (
             <Button variant="ghost" className="ml-auto min-h-11 text-flag" onClick={() => actions.cancel(game)}><X /> Cancel game</Button>

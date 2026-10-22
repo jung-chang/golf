@@ -5,6 +5,7 @@ import { notify } from '../worker/push';
 import type { AppEnv, Env } from '../worker/env';
 import type { Game } from '../src/schemas/group';
 import { capacity, countdown, dayLabel, gameLabel, phase } from '../src/features/games/label';
+import { googleCalendarUrl } from '../src/features/games/calendar';
 
 const at = (time: string) => [{ teetime: '', time, spots: 4, bookedBy: null }];
 
@@ -95,6 +96,18 @@ describe('game routes', () => {
     expect(ics).toContain('DTEND:20261018T155100Z'); // last time + 4½ hours
     expect(ics).toContain('LOCATION:Clearview Golf Course\\, New York');
     expect(ics).toContain('DESCRIPTION:Tee times 7:12am\\, 7:21am\\nWith Ann');
+  });
+
+  it('links the same event to Google Calendar', () => {
+    const game: Game = { id: 'g1', code: 'CLR', facilityId: 4047, date: '2026-10-18', holes: 18, note: null, createdBy: 'ann@x.com', status: 'open', scores: [], updatedAt: '',
+      players: [{ ...ann, checkedIn: false }], times: [{ teetime: '2026-10-18T11:12:00.000Z', time: '07:12', spots: 4, bookedBy: null }] };
+    const url = new URL(googleCalendarUrl(game));
+    expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
+    expect(url.searchParams.get('action')).toBe('TEMPLATE');
+    expect(url.searchParams.get('dates')).toBe('20261018T111200Z/20261018T154200Z');
+    expect(url.searchParams.get('text')).toBe('Golf: Clearview (18 holes)');
+    expect(url.searchParams.get('location')).toBe('Clearview Golf Course, New York');
+    expect(url.searchParams.get('details')).toBe('With Ann');
   });
 
   it('tells the proposer when someone joins', async () => {
