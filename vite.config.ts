@@ -36,6 +36,13 @@ export default defineConfig({
         // /api and Access's own pages (sign-in, sign-out) must reach the network, not the cached app.
         navigateFallbackDenylist: [/^\/api\//, /^\/cdn-cgi\//],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // maplibre is ~1 MB
+        // Satellite tiles you've looked at stay on the phone, so the map still shows with no signal.
+        runtimeCaching: [{
+          urlPattern: /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\//,
+          handler: 'CacheFirst',
+          // MapLibre fetches tiles with CORS, so only real 200s are kept (opaque responses would eat storage quota).
+          options: { cacheName: 'satellite', expiration: { maxEntries: 2500, maxAgeSeconds: 90 * 24 * 60 * 60 }, cacheableResponse: { statuses: [200] } },
+        }],
       },
     }),
   ],

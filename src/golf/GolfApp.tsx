@@ -13,8 +13,9 @@ const Play = lazy(() => import('../play/Play').then((m) => ({ default: m.Play })
 export default function Golf({ page, arg }: { page?: string; arg?: string }) {
   const loaded = useStore((s) => s.loaded);
   const error = useStore((s) => s.error);
+  const savedMember = useStore((s) => s.savedMember);
   useEffect(() => { void load(); }, []);
-  if (!loaded) return error ? <LoadError message={error} /> : <LoadingScreen />;
+  if (!loaded) return error ? <LoadError message={error} savedMember={savedMember} /> : <LoadingScreen />;
   if (page === 'round') return <RoundDetail id={arg ?? ''} />;
   const tab: GolfTab = page === 'trends' || page === 'progress' ? 'trends' : page === 'bag' ? 'bag' : 'rounds';
   return <MyGolf tab={tab} start={page === 'start'} />;
@@ -25,9 +26,10 @@ export function PlayScreen() {
   const loaded = useStore((s) => s.loaded);
   const activeId = useStore((s) => s.activeId);
   const error = useStore((s) => s.error);
+  const savedMember = useStore((s) => s.savedMember);
   useEffect(() => { void load(); }, []);
   useEffect(() => { if (loaded && !activeId) go('golf'); }, [loaded, activeId]);
-  if (!loaded) return error ? <LoadError message={error} /> : <LoadingScreen />;
+  if (!loaded) return error ? <LoadError message={error} savedMember={savedMember} /> : <LoadingScreen />;
   if (!activeId) return <LoadingScreen label="Opening My golf…" />;
   return <Suspense fallback={<LoadingScreen label="Loading the course map…" />}><Play key={activeId} roundId={activeId} /></Suspense>;
 }

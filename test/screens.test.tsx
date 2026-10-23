@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { defaultBag } from '../src/lib/clubs';
-import { newRound, emptyHole, markShot, holeDone, setPutts } from '../src/lib/round';
+import { newRound, emptyHole, markShot, holeDone, setPutts, undo } from '../src/lib/round';
 import { getCourse } from '../src/lib/courses';
 import type { Round } from '../src/schemas/round';
 import type { Fix } from '../src/play/useGeolocation';
@@ -188,7 +188,7 @@ describe('profile and game recovery', () => {
     const round = newRound(course, course.tees[0].id);
     fixture.state.rounds = { [round.id]: round };
     render(<Play roundId={round.id} />);
-    await screen.findByText(/GPS: Location permission denied/);
+    expect(screen.getByRole('status', { name: 'Location' }).textContent).toBe('Location is off · yardages from the tee');
     fireEvent.click(screen.getByRole('button', { name: 'Putts (finishes the hole)' }));
     fireEvent.click(await screen.findByRole('button', { name: '1 putt' }));
     expect(saveRoundMock.mock.lastCall?.[0].holes[round.current].putts).toBe(1);
@@ -214,6 +214,48 @@ describe('profile and game recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reopen hole' }));
     expect(saveRoundMock.mock.lastCall![0].holes[1]).toMatchObject({ putts: 0, completed: false });
     expect(saveRoundMock.mock.lastCall![0].holes[1].shots[0].end).toBeNull();
+  });
+  it('away from the course: says so, measures from the tee, and will not record a shot from there', () => {
+    const course = getCourse('clearview-park')!;
+    const round = newRound(course, course.tees[0].id);
+    fixture.state.rounds = { [round.id]: round };
+    fixture.fix = { pos: [-73.95, 40.65], acc: 5, t: Date.now() }; // Brooklyn
+    const view = render(<Play roundId={round.id} />);
+    expect(screen.getByRole('status', { name: 'Location' }).textContent).toMatch(/^\d+ mi away · yardages from the tee$/);
+    expect(Number(view.container.querySelector('[data-yards=center] b')!.textContent)).toBeLessThan(400); // from the tee, not 19,000
+    const shot = screen.getByRole('button', { name: /Start shot ·/ }) as HTMLButtonElement;
+    expect(shot.disabled).toBe(true);
+    expect(saveRoundMock).not.toHaveBeenCalled();
+  });
+  it('ignores a shot saved from far away when correcting it', () => {
+    const course = getCourse('clearview-park')!;
+    let round = markShot(newRound(course, course.tees[0].id), 'dr', [-73.95, 40.65], 5); // recorded at home before this fix
+    round = undo(round);
+    fixture.state.rounds = { [round.id]: round };
+    fixture.fix = null;
+    const view = render(<Play roundId={round.id} />);
+    expect(Number(view.container.querySelector('[data-yards=center] b')!.textContent)).toBeLessThan(400);
+    expect(screen.getByRole('status', { name: 'Location' }).textContent).toMatch(/· yardages from the tee$/);
+  });
+  it('keeps tracking shots offline and says they are saved on the phone', () => {
+    const course = getCourse('clearview-park')!;
+    const round = newRound(course, course.tees[0].id);
+    fixture.state.rounds = { [round.id]: round };
+    fixture.state.syncStatus = 'offline';
+    fixture.fix = { pos: [...course.holes[0].path![0]], acc: 3, t: Date.now() };
+    render(<Play roundId={round.id} />);
+    expect(screen.getByRole('status', { name: 'Saving' }).textContent).toBe('Offline · saved on this phone');
+    fireEvent.click(screen.getByRole('button', { name: /Start shot ·/ }));
+    expect(saveRoundMock.mock.lastCall![0].holes[1].shots).toHaveLength(1);
+  });
+  it('flags a failed save on the phone with a retry', () => {
+    const course = getCourse('clearview-park')!;
+    const round = newRound(course, course.tees[0].id);
+    fixture.state.rounds = { [round.id]: round };
+    Object.assign(fixture.state, { saveError: true });
+    render(<Play roundId={round.id} />);
+    expect(screen.getByRole('status', { name: 'Saving' }).textContent).toBe('Not saved on this phoneRetry');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   });
   it('steps between holes from the bar, wrapping from 1 to 18', () => {
     const course = getCourse('clearview-park')!;
@@ -254,5 +296,14 @@ describe('profile and game recovery', () => {
     expect(screen.getByRole('dialog', { name: 'Hole 1 · Par 4' })).toBeTruthy();
     expect(screen.getByText(/Hole complete/)).toBeTruthy();
     expect(saveRoundMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('opening golf with no server answer', () => {
+  it('offers the saved copy of the account last signed in on this phone', async () => {
+    const { LoadError } = await import('../src/components/data-status');
+    render(<LoadError message="Can't reach the server. Your round is saved on this phone." savedMember="kevin@example.test" />);
+    expect(screen.getByRole('button', { name: "Open kevin's saved golf" })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 });

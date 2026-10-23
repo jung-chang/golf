@@ -21,7 +21,8 @@ const STYLE: StyleSpecification = {
       attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
     },
   },
-  layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
+  // Grass-dark under the imagery: with no signal and no saved tiles, the outlines still read as a course.
+  layers: [{ id: 'ground', type: 'background', paint: { 'background-color': '#1f3324' } }, { id: 'sat', type: 'raster', source: 'sat' }],
 };
 
 type Props = {
@@ -42,6 +43,7 @@ type Props = {
   shotTags?: { pos: LngLat; text: string }[]; // this hole's shots, labelled where they were hit from
   onTargetMove?: (p: LngLat) => void;
   pinCallout?: React.ReactNode; // yardages drawn beside the pin (front / center / back)
+  padTop?: number; // px kept clear at the top (hole label, location banner)
   onTap: (p: LngLat) => void;
   onClearTarget: () => void;
   onPinMove: (p: LngLat) => void;
@@ -84,9 +86,9 @@ export function HoleMap(p: Props) {
       : p.view === 'green' ? [...green, offset(g, bearing(p.from, g), 12), offset(g, bearing(p.from, g) + 180, 12)]
       : [p.from, ...green, offset(g, bearing(p.from, g), 15)];
     m.resize();
-    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? (p.padBottom ? 96 : 65) : 130, bottom: (p.padBottom ?? 0) + (p.review ? (p.padBottom ? 80 : 40) : 90), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
+    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? (p.padBottom ? 96 : 65) : p.padTop ?? 130, bottom: (p.padBottom ?? 0) + (p.review ? (p.padBottom ? 80 : 40) : 90), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
     // Only on hole change / view change / explicit recenter, not on every GPS tick.
-  }, [ready, hole, p.recenter, p.view, p.padBottom, p.review, moved]);
+  }, [ready, hole, p.recenter, p.view, p.padBottom, p.padTop, p.review, moved]);
 
   return (
     <MapGL

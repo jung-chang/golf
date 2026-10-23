@@ -20,6 +20,9 @@ export function defaultBag(): Bag {
 
 export const shotYards = (s: Shot) => (s.end ? distYd(s.pos, s.end) : null);
 
+// Longer than anyone hits it: a shot marked from somewhere else (testing at home, a stale fix).
+export const MAX_SHOT_YD = 400;
+
 export const shortName = (name: string) => name.replace(' Iron', 'i').replace(' Wood', 'W').replace(' Hybrid', 'H');
 
 export type TrackedShot = { club: string; yd: number; t: number };
@@ -31,7 +34,9 @@ export function trackedShots(rounds: Round[]): TrackedShot[] {
     for (const h of Object.values(r.holes)) {
       for (const s of h.shots) {
         if (s.club === PUTTER || s.mishit || !s.end) continue;
-        out.push({ club: s.club, yd: shotYards(s)!, t: s.t });
+        const yd = shotYards(s)!;
+        if (yd > MAX_SHOT_YD) continue;
+        out.push({ club: s.club, yd, t: s.t });
       }
     }
   }

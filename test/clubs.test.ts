@@ -22,3 +22,11 @@ describe('suggestClub', () => {
     expect(suggestClub(171, { ...bag, useTracked: false }, stats)?.club.id).toBe('5i');
   });
 });
+
+describe('clubStats sanity', () => {
+  it('leaves out shots longer than anyone hits (marked from somewhere else)', () => {
+    const stats = clubStats([roundWith([shot('7i', 150), shot('7i', 152), shot('7i', 19_300)])]);
+    expect(stats['7i'].n).toBe(2);
+    expect(stats['7i'].median).toBeCloseTo(151, 0);
+  });
+});

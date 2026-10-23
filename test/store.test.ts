@@ -60,12 +60,31 @@ describe('member-owned golf storage', () => {
     fetchMock.mockRejectedValueOnce(new Error('Timed out'));
     const store = await import('../src/lib/store');
     await store.load();
-    expect(store.getState()).toMatchObject({ loaded: false, owner: null, error: 'Timed out' });
+    // Not opened on its own, but offered for the person to choose.
+    expect(store.getState()).toMatchObject({ loaded: false, owner: null, savedMember: 'previous@example.test', error: "Can't reach the server. Your round is saved on this phone." });
     expect(db.stores.size).toBe(0);
     fetchMock.mockResolvedValueOnce(reply({ error: 'unauthorized' }, 401));
     await store.load();
     expect(store.getState().loaded).toBe(false);
     expect(db.stores.size).toBe(0);
+  });
+
+  it('opens the remembered member after a timeout only when the person chooses it', async () => {
+    localStorage.setItem('golf.member', email);
+    fetchMock.mockRejectedValueOnce(new DOMException('The operation timed out.', 'TimeoutError'));
+    const store = await import('../src/lib/store');
+    await store.load();
+    expect(store.getState()).toMatchObject({ loaded: false, savedMember: email });
+    fetchMock.mockClear();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch')); // still no signal
+    await store.openSaved();
+    expect(store.getState()).toMatchObject({ loaded: true, owner: email, savedMember: null });
+    // Background sync still checks the account with the server (and keeps failing quietly here).
+    // The choice was for that one open: after a sign-out, opening again asks the server.
+    window.dispatchEvent(new Event('golf:signed-out'));
+    fetchMock.mockResolvedValue(reply({ error: 'unauthorized' }, 401));
+    await store.load();
+    expect(store.getState()).toMatchObject({ loaded: false, savedMember: null });
   });
 
   it('opens a remembered member only when explicitly offline, without network requests', async () => {

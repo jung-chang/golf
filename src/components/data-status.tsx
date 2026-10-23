@@ -1,23 +1,26 @@
 import { CloudCheck, CloudOff, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { load, sync, useStore } from '@/lib/store';
+import { load, openSaved, sync, useStore } from '@/lib/store';
 
 export function LoadingScreen({ label = 'Loading your golf…' }: { label?: string }) {
   return <div role="status" className="flex min-h-48 items-center justify-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-5 animate-spin" />{label}</div>;
 }
-export function LoadError({ message, retry = () => void load() }: { message: string; retry?: () => void }) {
-  return <div role="alert" className="m-4 space-y-3 rounded-2xl border bg-card p-5"><p className="font-semibold">Couldn't load this screen</p><p className="text-sm text-muted-foreground">{message}</p><Button variant="outline" className="min-h-11" onClick={retry}><RefreshCw />Try again</Button></div>;
+export function LoadError({ message, retry = () => void load(), savedMember }: { message: string; retry?: () => void; savedMember?: string | null }) {
+  return <div role="alert" className="m-4 space-y-3 rounded-2xl border bg-card p-5"><p className="font-semibold">Couldn't load this screen</p><p className="text-sm text-muted-foreground">{message}</p>
+    <div className="flex flex-wrap gap-2">
+      {savedMember && <Button className="min-h-11" onClick={() => void openSaved()}><CloudOff />Open {savedMember.split('@')[0]}'s saved golf</Button>}
+      <Button variant="outline" className="min-h-11" onClick={retry}><RefreshCw />Try again</Button>
+    </div></div>;
 }
-// `quiet`: only speak up when something needs you (the play screen).
-export function SyncStatus({ quiet = false }: { quiet?: boolean }) {
+export function SyncStatus() {
   const status = useStore((s) => s.syncStatus);
   const failedSave = useStore((s) => s.saveError);
   const loaded = useStore((s) => s.loaded);
   const pending = useStore((s) => s.pending);
   const saving = useStore((s) => s.saving);
   const error = useStore((s) => s.error);
-  if (!loaded) return error ? <LoadError message={error} /> : <LoadingScreen label="Opening saved golf data…" />;
-  if (quiet && loaded && !failedSave && status !== 'error') return null;
+  const savedMember = useStore((s) => s.savedMember);
+  if (!loaded) return error ? <LoadError message={error} savedMember={savedMember} /> : <LoadingScreen label="Opening saved golf data…" />;
   const retry = failedSave || status === 'error' || status === 'pending';
   const text = failedSave ? 'Not saved on this phone. Keep the app open and retry.'
     : saving ? 'Saving on this phone…'

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Crosshair, Flag, Map as MapIcon, Minus, MoreHorizontal, Plus, Undo2 } from 'lucide-react';
+import { ChevronRight, CloudOff, Crosshair, Flag, Loader2, LocateOff, Map as MapIcon, Minus, MoreHorizontal, Plus, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Empty } from '@/components/page';
 import { Button } from '@/components/ui/button';
-import { SyncStatus } from '@/components/data-status';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
 import { go } from '../lib/nav';
@@ -13,7 +12,7 @@ import { getCourse } from '../lib/courses';
 import { elevationFt, playsLike } from '../lib/elevation';
 import { centroid, distM, distYd, frontBack, M_TO_YD, nearestOnLine, pointAhead, pointInPolygon, type LngLat } from '../lib/geo';
 import * as R from '../lib/round';
-import { saveRound, setActive, useStore } from '../lib/store';
+import { saveRound, setActive, sync, useStore } from '../lib/store';
 import type { Hole } from '../schemas/course';
 import { HoleMap, labelAt } from './HoleMap';
 import { HoleReview } from './HoleReview';
@@ -28,6 +27,8 @@ export function Play({ roundId }: { roundId: string }) {
   const round = useStore((s) => s.rounds[roundId]);
   const bag = useStore((s) => s.bag);
   const rounds = useStore((s) => s.rounds);
+  const syncStatus = useStore((s) => s.syncStatus);
+  const saveError = useStore((s) => s.saveError);
   const stats = useMemo(() => clubStats(Object.values(rounds)), [rounds]);
   const course = getCourse(round.courseId);
   const { fix, error, inject } = useGeolocation();
@@ -57,8 +58,10 @@ export function Play({ roundId }: { roundId: string }) {
   const recordingFix = correction ? { pos: correction.pos, acc: correction.acc, t: correction.t } : fix;
   const pin = hs.pin ?? hole?.green.center ?? [0, 0];
   const teePos: LngLat | undefined = hole && (hole.tees?.[round.teeId]?.pos ?? hole.path?.[0]);
+  // On this hole (by GPS, or the saved spot being corrected). Off it, yardages come from the tee and
+  // shots can't be marked: a shot recorded from home would read 19,000 y and poison club distances.
   const live = !!(recordingFix && hole && distYd(recordingFix.pos, hole.green.center) < NEAR_HOLE_YD);
-  const from: LngLat = correction?.pos ?? (live ? recordingFix!.pos : teePos ?? hole?.green.center ?? [0, 0]);
+  const from: LngLat = live ? recordingFix!.pos : teePos ?? hole?.green.center ?? [0, 0];
 
   // Elevation: ground at the pin, and at you (or the tee when you're not on the hole).
   useEffect(() => {
@@ -153,7 +156,8 @@ export function Play({ roundId }: { roundId: string }) {
   function mark(force = false) {
     if (!club) return;
     if (club === PUTTER) return putt();
-    if (!recordingFix) return void toast.error('No GPS position yet. Give it a few seconds outside.');
+    if (!recordingFix) return void toast.error('No GPS position yet');
+    if (!live) return void toast.error(`Not at hole ${hole!.number} by GPS, so the shot wasn't recorded`);
     if (recordingFix.acc > 25 && !force) {
       return void toast.warning(`GPS is only accurate to ±${Math.round(recordingFix.acc * M_TO_YD)} y`, { action: { label: 'Mark anyway', onClick: () => mark(true) } });
     }
@@ -220,15 +224,28 @@ export function Play({ roundId }: { roundId: string }) {
     : open && live && fix && !nearGreen && distYd(open.pos, fix.pos) >= 10
       ? `${shortName(bag.clubs.find((c) => c.id === open.club)?.name ?? open.club)} · ${yd(distYd(open.pos, fix.pos))} y so far`
     : '';
-  const gpsNote = error ? `GPS: ${error}` : !fix ? (SIM ? 'Sim: long-press to place yourself' : 'Finding GPS…')
-    : fix.acc > 15 ? `GPS ±${Math.round(fix.acc * M_TO_YD)} y` : !live ? 'Off the hole · from the tee' : null;
+  // Shots are saved on the phone first; say so when they can't reach the server yet (or, rarely, can't save).
+  const saved: { text: string; bad?: boolean } | null = saveError ? { text: 'Not saved on this phone', bad: true }
+    : syncStatus === 'offline' ? { text: 'Offline · saved on this phone' }
+    : syncStatus === 'error' ? { text: 'Saved on this phone · will sync' }
+    : null;
+
+  // Where the numbers come from when it isn't you: shown as a banner under the hole label.
+  const awayYd = fix ? distYd(fix.pos, hole.green.center) : 0;
+  const gps: { text: string; warn?: boolean; busy?: boolean } | null =
+    SIM && !fix ? { text: 'Sim: long-press the map to place yourself' }
+    : error ? { text: 'Location is off · yardages from the tee', warn: true }
+    : !fix ? { text: 'Finding your location · yardages from the tee', busy: true }
+    : !live ? { text: `${awayYd > 3_520 ? `${Math.round(awayYd / 1760)} mi away` : `Not at hole ${hole.number}`} · yardages from the tee`, warn: true }
+    : fix.acc > 15 ? { text: `GPS ±${Math.round(fix.acc * M_TO_YD)} y`, warn: true }
+    : null;
 
   const nums = course.holes.map((h) => h.number);
   const prevNo = nums[(nums.indexOf(round.current) - 1 + nums.length) % nums.length];
   const nextNo = nums[(nums.indexOf(round.current) + 1) % nums.length];
   const clubShort = club ? shortName(clubName ?? club) : null;
   // The one transient line above the bar: what just happened, else a GPS problem. Facts only.
-  const note = done ? null : lastShot ? 'last' : hint || gpsNote;
+  const note = done ? null : lastShot ? 'last' : hint;
 
   // 18Birdies-style yardages, drawn on the map beside the pin: back, center (with plays-like and club), front.
   const pill = done ? null : aimAt ? { label: `${target ? 'Target' : 'Layup'}${clubShort ? ` · ${clubShort}` : ''}`, text: String(yd(aim)) }
@@ -267,6 +284,7 @@ export function Play({ roundId }: { roundId: string }) {
           onPinMove={(p) => save(R.setPin(round, p))}
           onLongPress={SIM ? (p) => inject(p, 3) : undefined}
           pinCallout={callout}
+          padTop={130 + 36 * [gps, saved].filter(Boolean).length}
         />
       </div>
 
@@ -281,6 +299,19 @@ export function Play({ roundId }: { roundId: string }) {
         </span>
       </button>
       <Circle aria-label="Hole tools and penalties" className="absolute top-[calc(env(safe-area-inset-top)+0.75rem)] right-3" onClick={() => setTools(true)}><MoreHorizontal /></Circle>
+      {/* Status under the hole label: where the yardages come from, and whether shots are saved. */}
+      <div className="absolute top-[calc(env(safe-area-inset-top)+4.75rem)] left-3 grid max-w-[calc(100%-5.5rem)] justify-items-start gap-1.5">
+        {gps && <p role="status" aria-label="Location" className={cn('flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold shadow-md',
+          gps.warn ? 'bg-[#ffb52e] text-[#2b1d05]' : cn(MAP_DARK, 'text-white'))}>
+          {gps.busy ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : <LocateOff className="size-3.5 shrink-0" />}
+          <span className="truncate">{gps.text}</span>
+        </p>}
+        {saved && <p role="status" aria-label="Saving" className={cn('flex max-w-full items-center gap-2 rounded-full py-1 pr-1 pl-3 text-xs font-semibold shadow-md',
+          saved.bad ? 'bg-destructive text-white' : cn(MAP_DARK, 'text-white'), !saved.bad && 'py-1.5 pr-3')}>
+          <CloudOff className="size-3.5 shrink-0" /><span className="truncate">{saved.text}</span>
+          {saved.bad && <button type="button" onClick={() => void sync()} className="min-h-8 rounded-full bg-white/20 px-3">Retry</button>}
+        </p>}
+      </div>
 
       {/* Bottom: one floating bar; map buttons and a one-line note sit just above it. */}
       <div className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]">
@@ -295,7 +326,7 @@ export function Play({ roundId }: { roundId: string }) {
           className="absolute bottom-full left-1/2 mb-4 flex max-w-[calc(100%-8.5rem)] -translate-x-1/2 justify-center text-xs font-semibold">
           {note === 'last' ? <span aria-label="Last shot" className="truncate rounded-full bg-[#f26522] px-3 py-1.5 text-white shadow-md">{lastShot}</span>
             : done ? <span aria-label="Hole summary" className={cn('truncate rounded-full px-3 py-1.5 text-white shadow-md', MAP_DARK)}>{summary || 'Score only'}</span>
-            : note ? <span className={cn('truncate rounded-full px-3 py-1.5 shadow-md', error || (fix && fix.acc > 15) ? 'bg-orange-soft text-warning' : cn(MAP_DARK, 'text-white'))}>{note}</span>
+            : note ? <span className={cn('truncate rounded-full px-3 py-1.5 text-white shadow-md', MAP_DARK)}>{note}</span>
             : null}
         </p>
         {correction && <Button variant="secondary" className="absolute bottom-full left-1/2 mb-12 min-h-11 -translate-x-1/2 rounded-full shadow-md"
@@ -325,7 +356,7 @@ export function Play({ roundId }: { roundId: string }) {
               className={cn('grid size-[52px] place-content-center rounded-full bg-white leading-none text-[#17251c]', sug && club === sug.club.id && 'ring-2 ring-orange')}>
               <b className="text-[15px]">{clubShort ?? 'Club'}</b>{clubYds && <span className="text-[10px] text-[#5b6b60] tabular-nums">{clubYds}</span>}
             </button>
-            <button type="button" aria-describedby="shot-feedback" onClick={() => mark()} disabled={!club}
+            <button type="button" aria-describedby="shot-feedback" onClick={() => mark()} disabled={!club || !live}
               aria-label={correction ? `Save correction · ${club === PUTTER ? 'Putt' : clubName ?? '–'}` : `Start shot · ${clubName ?? '–'}`}
               className="-mt-8 grid size-[76px] place-content-center rounded-full border-4 border-[rgb(12_14_13)] bg-primary leading-none font-extrabold text-primary-foreground shadow-lg disabled:opacity-60">
               <span className="text-base">{correction ? 'Save' : 'Shot'}</span><span className="mt-1 text-[10px] font-semibold opacity-85">#{R.holeScore(hs) + 1}</span>
@@ -335,7 +366,6 @@ export function Play({ roundId }: { roundId: string }) {
             <BarButton aria-label="Next hole" onClick={() => step(1)}>{nextNo} ›</BarButton>
           </>)}
         </div>
-        <SyncStatus quiet />
       </div>
 
       <Drawer open={clubs} onOpenChange={setClubs}>

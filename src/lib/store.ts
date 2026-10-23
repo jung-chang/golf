@@ -21,6 +21,9 @@ type State = {
   rounds: Record<string, Round>;
   bag: Bag;
   activeId: string | null;
+  // The server couldn't be reached to confirm who you are, but this phone remembers who signed in
+  // last: the person can choose to open that copy (weak signal on the course).
+  savedMember: string | null;
 };
 type Db = ReturnType<typeof createStore>;
 type Context = {
@@ -34,13 +37,14 @@ type Context = {
 };
 const MEMBER_KEY = 'golf.member';
 const blank = (): State => ({ loaded: false, loading: false, owner: null, error: null, saveError: false, saving: false,
-  syncStatus: 'pending', initialSynced: false, pending: 0, rounds: {}, bag: defaultBag(), activeId: null });
+  syncStatus: 'pending', initialSynced: false, pending: 0, rounds: {}, bag: defaultBag(), activeId: null, savedMember: null });
 let state = blank();
 let context: Context | null = null;
 let loading: Promise<void> | null = null;
 let syncing: Promise<void> | null = null;
 let revision = 0;
 let sessionEpoch = 0;
+let chosenOffline: string | null = null; // set by openSaved(): the person chose the remembered copy
 const listeners = new Set<() => void>();
 function setState(patch: Partial<State>) {
   state = { ...state, ...patch };
@@ -68,19 +72,39 @@ addEventListener('storage', (event) => {
 async function member(): Promise<string> {
   // Only an explicitly offline device can open the previously verified member's local copy.
   // A timeout, invalid response, or expired login must not select somebody else's stores.
+  // Without a server answer it never opens on its own; openSaved() is the person choosing it.
+  const saved = localStorage.getItem(MEMBER_KEY);
+  const chosen = chosenOffline;
+  chosenOffline = null; // one open only: any later load (e.g. after a sign-out) asks the server again
+  if (chosen && chosen === saved) return chosen;
   if (!navigator.onLine) {
-    const saved = localStorage.getItem(MEMBER_KEY);
     if (saved) return saved;
     throw new Error('Connect once to sign in before using golf offline.');
   }
-  const m = z.object({ email: z.string().email() }).parse(await api('/me', { signal: AbortSignal.timeout(8000) }));
-  return m.email;
+  try {
+    const m = z.object({ email: z.string().email() }).parse(await api('/me', { signal: AbortSignal.timeout(8000) }));
+    return m.email;
+  } catch (e) {
+    // No answer (weak signal, timeout) as opposed to a sign-in answer: offer the remembered copy.
+    if (!(e instanceof ApiError) && saved) {
+      setState({ savedMember: saved });
+      throw new Error("Can't reach the server. Your round is saved on this phone.");
+    }
+    throw e;
+  }
+}
+
+/** Open the remembered member's data without the server (offered after a failed identity check). */
+export function openSaved(): Promise<void> {
+  chosenOffline = state.savedMember;
+  setState({ error: null, savedMember: null });
+  return load();
 }
 
 export function load(): Promise<void> {
   if (state.loaded) return Promise.resolve();
   if (loading) return loading;
-  setState({ loading: true, error: null });
+  setState({ loading: true, error: null, savedMember: null });
   loading = open(sessionEpoch).catch((e: unknown) => {
     setState({ loading: false, error: e instanceof Error ? e.message : 'Could not open your saved golf data.' });
   }).finally(() => { loading = null; });
@@ -105,7 +129,7 @@ async function open(epoch: number) {
   }
   ctx.dirty = new Map((dirty ?? []).map((key) => [key, ++revision]));
   const b = Bag.safeParse(bag);
-  setState({ loaded: true, loading: false, owner: who, rounds, bag: b.success ? b.data : defaultBag(),
+  setState({ loaded: true, loading: false, owner: who, savedMember: null, rounds, bag: b.success ? b.data : defaultBag(),
     activeId: activeId && rounds[activeId] && !rounds[activeId].done ? activeId : null,
     pending: ctx.dirty.size, syncStatus: navigator.onLine ? 'pending' : 'offline' });
   navigator.storage?.persist?.().catch(() => {});
