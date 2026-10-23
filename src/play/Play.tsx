@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Crosshair, Flag, Map as MapIcon, Minus, MoreHorizontal, Plus, Undo2, X } from 'lucide-react';
+import { ChevronRight, Crosshair, Flag, Map as MapIcon, Minus, MoreHorizontal, Plus, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Empty } from '@/components/page';
@@ -45,10 +45,11 @@ export function Play({ roundId }: { roundId: string }) {
   const [card, setCard] = useState(false);
   const [lastShot, setLastShot] = useState<string | null>(null); // "Driver · 233 y", shown briefly once measured
   const [viewPick, setViewPick] = useState<'hole' | 'green' | null>(null);
-  const cardRef = useRef<HTMLElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [cardH, setCardH] = useState(0);
   const [hereElev, setHereElev] = useState<number | null>(null);
   const lastTap = useRef<{ type: 'shot' | 'putt'; at: number } | null>(null);
+  const finishedAt = useRef<{ hole: number; at: number } | null>(null);
 
   const hole = course?.holes.find((h) => h.number === round.current);
   const hs = round.holes[round.current] ?? R.emptyHole();
@@ -88,7 +89,7 @@ export function Play({ roundId }: { roundId: string }) {
   useEffect(() => {
     const el = cardRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setCardH(Math.round(el.offsetHeight / 20) * 20));
+    const ro = new ResizeObserver(() => setCardH(Math.round((window.innerHeight - el.getBoundingClientRect().top) / 20) * 20));
     ro.observe(el);
     return () => ro.disconnect();
   }, [!!hole]);
@@ -145,7 +146,7 @@ export function Play({ roundId }: { roundId: string }) {
   }
 
   function undo() {
-    save(R.undo(round));
+    save(hs.completed ? R.reopen(round) : R.undo(round)); // a finished hole reopens in one step
     setPicked(null); setTarget(null); setLastShot(null); lastTap.current = null;
   }
 
@@ -165,26 +166,31 @@ export function Play({ roundId }: { roundId: string }) {
     setRecenter((n) => n + 1);
   }
 
+  // Wraps (‹ 18 from hole 1), so a round started on 10 can walk 18 → 1.
   function step(d: number) {
     const nums = course!.holes.map((h) => h.number);
-    const i = nums.indexOf(round.current) + d;
-    if (i >= 0 && i < nums.length) save({ ...round, current: nums[i], updatedAt: new Date().toISOString() });
+    const i = (nums.indexOf(round.current) + d + nums.length) % nums.length;
+    save({ ...round, current: nums[i], updatedAt: new Date().toISOString() });
   }
 
   // "I took n putts": the hole is done. Say how it went, then move to the next tee.
   function finishHole(n: number) {
-    if (!puttsOpen) return; // a second tap while the sheet closes
+    // A second tap (sheet closing, or the bar's buttons) must not finish the hole twice.
+    if (finishedAt.current && finishedAt.current.hole === round.current && Date.now() - finishedAt.current.at < 1_500) return;
+    finishedAt.current = { hole: round.current, at: Date.now() };
     setPuttsOpen(false);
     // Where you stand ends the approach only if that's on or by this green (not walking to the
     // next tee) and the fix is good; otherwise leave it unmeasured rather than skew club distances.
     const byGreen = live && recordingFix && recordingFix.acc <= 25
       && ((hole!.green.polygon && pointInPolygon(recordingFix.pos, hole!.green.polygon)) || distYd(recordingFix.pos, pin) <= 30);
-    const r = R.setPutts(round, n, byGreen ? recordingFix.pos : null, pin);
+    const editing = !!hs.completed; // changing the count later: stay put, keep the approach as it was
+    const r = R.setPutts(round, n, byGreen && !editing ? recordingFix.pos : null, pin);
     const strokes = R.holeScore(r.holes[round.current]);
     // The approach is measured now (to where you stand on the green), so say how far it went.
     const approach = open && n > 0 ? r.holes[round.current].shots.at(-1) : null;
     const measured = approach?.end ? ` · approach ${shortName(bag.clubs.find((c) => c.id === approach.club)?.name ?? approach.club)} ${yd(shotYards(approach))} y` : '';
     toast.success(`Hole ${hole!.number}: ${strokes} strokes · ${scoreName(strokes - hole!.par)}${measured}`);
+    if (editing) return save(r);
     if (!last) {
       const nums = course!.holes.map((h) => h.number);
       return save({ ...r, current: nums[nums.indexOf(round.current) + 1] }, true);
@@ -199,108 +205,138 @@ export function Play({ roundId }: { roundId: string }) {
     go(`golf/round/${round.id}`);
   }
 
+  // A finished hole shows what happened (18Birdies style): the shots on the map, a summary in the card.
+  const done = !!hs.completed && !correction;
+  const clubLabel = (id: string) => shortName(bag.clubs.find((c) => c.id === id)?.name ?? id);
+  const summary = [...hs.shots.map((s) => `${clubLabel(s.club)}${s.end ? ` ${yd(shotYards(s))}` : ''}`),
+    ...(hs.putts ? [`${hs.putts} ${hs.putts === 1 ? 'putt' : 'putts'}`] : []),
+    ...(hs.penalties ? [`${hs.penalties} pen`] : [])].join(' · ');
+
   // Leaving keeps the round going (the strip at the top of the app resumes it).
   const leave = () => go(round.gameId ? `games/${round.gameId}` : 'golf');
   const open = hs.shots.at(-1)?.end === null ? hs.shots.at(-1)! : null; // hit, not yet measured
   // Facts only (what's recorded, how far it's gone), never instructions.
   const hint = correction ? 'Stroke removed'
-    : hs.completed ? `Done · ${R.holeScore(hs)} strokes · ${scoreName(R.holeScore(hs) - hole.par)}`
     : open && live && fix && !nearGreen && distYd(open.pos, fix.pos) >= 10
       ? `${shortName(bag.clubs.find((c) => c.id === open.club)?.name ?? open.club)} · ${yd(distYd(open.pos, fix.pos))} y so far`
     : '';
   const gpsNote = error ? `GPS: ${error}` : !fix ? (SIM ? 'Sim: long-press to place yourself' : 'Finding GPS…')
     : fix.acc > 15 ? `GPS ±${Math.round(fix.acc * M_TO_YD)} y` : !live ? 'Off the hole · from the tee' : null;
 
-  const shotButton = (big: boolean) => (
-    <Button variant={big ? 'default' : 'secondary'} className={cn('shrink-0 rounded-full font-bold', big ? 'size-[4.5rem] text-base shadow-lg' : 'size-14 text-sm')}
-      aria-describedby="shot-feedback" onClick={() => mark()} disabled={!club}
-      aria-label={correction ? `Save correction · ${club === PUTTER ? 'Putt' : clubName ?? '–'}` : `Start shot · ${clubName ?? '–'}`}>
-      <span className="grid leading-none">{correction ? 'Save' : 'Shot'}<span className="mt-1 text-[0.625rem] font-semibold opacity-80">#{R.holeScore(hs) + 1}</span></span>
-    </Button>
-  );
-  const puttsButton = (big: boolean) => (
-    <Button variant={big ? 'default' : 'secondary'} className={cn('shrink-0 rounded-full font-bold', big ? 'size-[4.5rem] text-base shadow-lg' : 'size-14 text-sm')}
-      aria-label="Putts (finishes the hole)" onClick={() => setPuttsOpen(true)}>Putts</Button>
+  const nums = course.holes.map((h) => h.number);
+  const prevNo = nums[(nums.indexOf(round.current) - 1 + nums.length) % nums.length];
+  const nextNo = nums[(nums.indexOf(round.current) + 1) % nums.length];
+  const clubShort = club ? shortName(clubName ?? club) : null;
+  // The one transient line above the bar: what just happened, else a GPS problem. Facts only.
+  const note = done ? null : lastShot ? 'last' : hint || gpsNote;
+
+  // 18Birdies-style yardages, drawn on the map beside the pin: back, center (with plays-like and club), front.
+  const pill = done ? null : aimAt ? { label: `${target ? 'Target' : 'Layup'}${clubShort ? ` · ${clubShort}` : ''}`, text: String(yd(aim)) }
+    : clubShort && !nearGreen ? { label: `Plays like · ${clubShort}`, text: String(yd(aim)) }
+    : view === 'green' && mainTilt(hole) ? { label: 'Green', text: mainTilt(hole)! } : null;
+  const callout = done ? null : (
+    <div className="pointer-events-none grid justify-items-start gap-1.5 text-white">
+      {fb && <Dist yards={yd(fb.back * M_TO_YD)} label="Back" />}
+      <div className="flex items-center">
+        <div data-yards="center" className={cn('relative z-[1] grid size-[72px] place-content-center rounded-full border-2 border-white text-center leading-none', MAP_DARK)}>
+          <b className="text-[26px] tabular-nums">{yd(dPin)}</b>
+          <span className="mt-0.5 text-[9px] tracking-wider text-white/75 uppercase">{correction ? 'Saved spot' : hs.pin ? 'Pin' : 'Center'}</span>
+        </div>
+        {pill && <div className="-ml-3.5 max-w-36 rounded-r-full bg-white py-1.5 pr-3 pl-5 leading-tight text-[#17251c] shadow-md">
+          <span className="block text-[10px] text-[#5b6b60]">{pill.label}</span><b className="block truncate text-[15px] tabular-nums">{pill.text}</b>
+        </div>}
+      </div>
+      {fb && <Dist yards={yd(fb.front * M_TO_YD)} label="Front" />}
+    </div>
   );
 
   return (
     <div className="play relative h-dvh overflow-hidden bg-black" style={{ '--card-h': `${cardH}px` } as React.CSSProperties}>
       <div className="absolute inset-0">
         <HoleMap
-          hole={hole} from={from} here={fix?.pos ?? null} hereAcc={fix?.acc} savedPosition={correction?.pos} pin={pin} target={aimAt} recenter={recenter}
-          view={view} padBottom={cardH} hazards={view === 'hole' ? hazardsAhead(hole, from, pin, aim) : []}
-          labels={aimAt ? [labelAt(from, aimAt, String(yd(distYd(from, aimAt)))), labelAt(aimAt, pin, String(yd(distYd(aimAt, pin))))] : []}
+          hole={hole} from={done ? hs.shots[0]?.pos ?? teePos ?? hole.green.center : from} here={fix?.pos ?? null} hereAcc={fix?.acc}
+          savedPosition={correction?.pos} pin={pin} target={done ? null : aimAt} recenter={recenter} review={done}
+          view={done ? 'hole' : view} padBottom={cardH} hazards={!done && view === 'hole' ? hazardsAhead(hole, from, pin, aim) : []}
+          labels={!done && aimAt ? [labelAt(from, aimAt, String(yd(distYd(from, aimAt)))), labelAt(aimAt, pin, String(yd(distYd(aimAt, pin))))] : []}
           shotLines={hs.shots.filter((s) => s.end).map((s) => [s.pos, s.end!])}
-          shotTags={hs.shots.map((s) => ({ pos: s.pos, text: `${shortName(bag.clubs.find((c) => c.id === s.club)?.name ?? s.club)}${s.end ? ` ${yd(shotYards(s))}y` : ''}` }))}
+          shotTags={[...hs.shots.map((s) => ({ pos: s.pos, text: `${clubLabel(s.club)}${s.end ? ` ${yd(shotYards(s))}y` : ''}` })),
+            ...(done && hs.putts ? [{ pos: pin, text: `${hs.putts} ${hs.putts === 1 ? 'putt' : 'putts'}` }] : [])]}
           onTap={setTarget}
           onTargetMove={setTarget}
           onClearTarget={() => setTarget(null)}
           onPinMove={(p) => save(R.setPin(round, p))}
           onLongPress={SIM ? (p) => inject(p, 3) : undefined}
+          pinCallout={callout}
         />
       </div>
 
-      {/* Top: leave, and the hole (arrows step through). */}
-      <header className="absolute inset-x-0 top-0 flex items-start gap-2 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
-        <Circle aria-label="Leave the map (the round keeps going)" onClick={leave}><X /></Circle>
-        <div className={cn('flex h-12 min-w-0 flex-1 items-center rounded-full', GLASS)}>
-          <Button variant="ghost" size="icon" className="size-12 shrink-0 rounded-full" aria-label="Previous hole" onClick={() => step(-1)}><ChevronLeft /></Button>
-          <button type="button" aria-label={`Hole ${hole.number}${scored.length ? `, ${R.fmtToPar(scoredToPar)} thru ${scored.length}` : ''}, scorecard`} onClick={() => setCard(true)} className="min-w-0 flex-1 text-center leading-tight">
-            <span className="block truncate text-base font-bold">Hole {hole.number}</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              Par {hole.par}{hole.yards?.[round.teeId] ? ` · ${hole.yards[round.teeId]} y` : ''}
-              {scored.length > 0 && <> · <b className="text-foreground">{R.fmtToPar(scoredToPar)}</b> thru {scored.length}</>}
-            </span>
-          </button>
-          <Button variant="ghost" size="icon" className="size-12 shrink-0 rounded-full" aria-label="Next hole" onClick={() => step(1)}><ChevronRight /></Button>
-        </div>
-      </header>
+      {/* Top: the hole (tap for the scorecard) and the menu. Everything else is map. */}
+      <button type="button" onClick={() => setCard(true)}
+        aria-label={`Hole ${hole.number}${scored.length ? `, ${R.fmtToPar(scoredToPar)} thru ${scored.length}` : ''}, scorecard`}
+        className={cn('absolute top-[calc(env(safe-area-inset-top)+0.75rem)] left-3 flex items-center gap-2.5 rounded-2xl py-2 pr-3.5 pl-3 text-left text-white shadow-md', MAP_DARK)}>
+        <b className="text-3xl leading-none tabular-nums">{hole.number}</b>
+        <span className="text-[11px] leading-snug text-white/75">
+          Par {hole.par}{hole.yards?.[round.teeId] ? ` · ${hole.yards[round.teeId]} y` : ''}
+          <span className="block font-semibold text-white">{scored.length ? `${R.fmtToPar(scoredToPar)} thru ${scored.length}` : hole.hcp ? `Hcp ${hole.hcp}` : `Par ${hole.par}`}</span>
+        </span>
+      </button>
+      <Circle aria-label="Hole tools and penalties" className="absolute top-[calc(env(safe-area-inset-top)+0.75rem)] right-3" onClick={() => setTools(true)}><MoreHorizontal /></Circle>
 
-      {/* Map controls: a column of round buttons on the right, out of the way of the hole. */}
-      <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] grid gap-2.5">
-        <Circle aria-label={view === 'green' ? 'Show the whole hole' : 'Zoom to the green'} aria-pressed={view === 'green'} onClick={() => setViewPick(view === 'green' ? 'hole' : 'green')}>
-          {view === 'green' ? <MapIcon /> : <Flag />}
-        </Circle>
-        <Circle aria-label="Recenter" onClick={() => { setTarget(null); setRecenter((n) => n + 1); }}><Crosshair /></Circle>
-      </div>
-      {gpsNote && <span role="status" style={{ bottom: cardH + 12 }} className={cn('absolute left-1/2 max-w-[80%] -translate-x-1/2 truncate rounded-full px-3 py-1.5 text-xs font-medium',
-        error || (fix && fix.acc > 15) ? 'bg-orange-soft text-warning' : GLASS)}>{gpsNote}</span>}
-
-      {/* Bottom card: the numbers, then one row of round controls. */}
-      <section ref={cardRef} className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-card px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-8px_30px_rgb(0_0_0/0.25)]">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-end tabular-nums">
-          <p className="text-center leading-none">{fb && <><b className="text-2xl">{yd(fb.front * M_TO_YD)}</b><span className="mt-1 block text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase">Front</span></>}</p>
-          <p className="px-3 text-center leading-none">
-            <b className="text-6xl font-extrabold tracking-tight">{yd(dPin)}</b>
-            <span className="mt-1 block text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase">{correction ? 'Pin · saved spot' : hs.pin ? 'Pin' : 'Center'}</span>
-          </p>
-          <p className="text-center leading-none">{fb && <><b className="text-2xl">{yd(fb.back * M_TO_YD)}</b><span className="mt-1 block text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase">Back</span></>}</p>
-        </div>
-        <p className="mt-1.5 min-h-4 text-center text-xs text-muted-foreground">
-          {aimAt ? `${target ? 'Target' : 'Layup'} ${yd(aim)} · leaves ${yd(distYd(aimAt, pin))}`
-            : view === 'green' ? greenTilt(hole) ?? ''
-            : dz != null && Math.abs(dz) >= 1 ? `Plays ${yd(aim)} (${dz > 0 ? '↑' : '↓'}${Math.abs(dz).toFixed(0)} ft)` : ''}
-        </p>
-
-        <div className="mt-3 flex items-center justify-between">
-          <Circle card aria-label="Undo last action" disabled={!hs.log.length} onClick={undo}><Undo2 /></Circle>
-          <Circle card aria-label={`Change club (${clubName ?? 'none'})`} onClick={() => setClubs(true)} className={cn(sug && club === sug.club.id && 'ring-2 ring-orange')}>
-            <span className="grid leading-none"><b className="text-sm">{club ? shortName(clubName ?? club) : 'Club'}</b>{clubYds && <span className="text-[0.625rem] text-muted-foreground tabular-nums">{clubYds}</span>}</span>
+      {/* Bottom: one floating bar; map buttons and a one-line note sit just above it. */}
+      <div className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+        <div className="absolute bottom-full left-1 mb-3 grid gap-2.5">
+          <Circle aria-label={view === 'green' ? 'Show the whole hole' : 'Zoom to the green'} aria-pressed={view === 'green'} onClick={() => setViewPick(view === 'green' ? 'hole' : 'green')}>
+            {view === 'green' ? <MapIcon /> : <Flag />}
           </Circle>
-          {nearGreen ? puttsButton(true) : shotButton(true)}
-          {nearGreen ? shotButton(false) : puttsButton(false)}
-          <Circle card aria-label="Hole tools and penalties" onClick={() => setTools(true)}><MoreHorizontal /></Circle>
+          <Circle aria-label="Recenter" onClick={() => { setTarget(null); setRecenter((n) => n + 1); }}><Crosshair /></Circle>
         </div>
-
-        <p id="shot-feedback" role="status" aria-label="Shot guidance" className="mt-2 min-h-4 text-center text-xs text-muted-foreground">
-          {lastShot
-            // The shot you just finished, in the card so the map (and your dot) stay clear.
-            ? <span aria-label="Last shot" className="rounded-full bg-[#f26522] px-2.5 font-bold text-white">{lastShot}</span>
-            : hint}
+        {!done && <Circle aria-label="Undo last action" disabled={!hs.log.length} className="absolute right-1 bottom-full mb-3" onClick={undo}><Undo2 /></Circle>}
+        <p id="shot-feedback" role="status" aria-label="Shot guidance"
+          className="absolute bottom-full left-1/2 mb-4 flex max-w-[calc(100%-8.5rem)] -translate-x-1/2 justify-center text-xs font-semibold">
+          {note === 'last' ? <span aria-label="Last shot" className="truncate rounded-full bg-[#f26522] px-3 py-1.5 text-white shadow-md">{lastShot}</span>
+            : done ? <span aria-label="Hole summary" className={cn('truncate rounded-full px-3 py-1.5 text-white shadow-md', MAP_DARK)}>{summary || 'Score only'}</span>
+            : note ? <span className={cn('truncate rounded-full px-3 py-1.5 shadow-md', error || (fix && fix.acc > 15) ? 'bg-orange-soft text-warning' : cn(MAP_DARK, 'text-white'))}>{note}</span>
+            : null}
         </p>
-        {correction && <Button variant="ghost" className="mt-1 min-h-11 w-full rounded-full" onClick={() => { save(R.editHole(round, h => { delete h.correction; })); setPicked(null); setTarget(null); lastTap.current = null; }}>Use live GPS</Button>}
+        {correction && <Button variant="secondary" className="absolute bottom-full left-1/2 mb-12 min-h-11 -translate-x-1/2 rounded-full shadow-md"
+          onClick={() => { save(R.editHole(round, h => { delete h.correction; })); setPicked(null); setTarget(null); lastTap.current = null; }}>Use live GPS</Button>}
+
+        <div ref={cardRef} className={cn('flex h-16 items-center justify-between rounded-full px-2 text-white shadow-xl', MAP_DARK)}>
+          {done ? (<>
+            <BarButton aria-label="Reopen hole" onClick={undo}><Undo2 className="size-5" /></BarButton>
+            <button type="button" aria-label="Change putts" onClick={() => setPuttsOpen(true)} className="flex min-h-12 flex-1 items-center gap-2.5 px-2 text-left">
+              <span className="grid size-10 place-items-center rounded-full border-2 border-white text-xl font-extrabold tabular-nums">{R.holeScore(hs)}</span>
+              <span className="text-[13px] leading-tight"><b className="text-[15px]">{scoreName(R.holeScore(hs) - hole.par)}</b>
+                <span className="block text-white/70">{hs.putts} {hs.putts === 1 ? 'putt' : 'putts'}</span></span>
+            </button>
+            <Button className="h-12 rounded-full pr-4 pl-5 text-[15px] font-extrabold" aria-label={last ? 'Finish round' : 'Go to the next hole'}
+              onClick={() => (last ? setFinishing(true) : step(1))}>{last ? <>Finish <Flag /></> : <>Hole {nextNo} <ChevronRight /></>}</Button>
+          </>) : nearGreen ? (<>
+            <span className="pl-3 text-xs font-bold tracking-wider text-white/75">PUTTS</span>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4].map((n) => <button key={n} type="button" aria-label={`${n} ${n === 1 ? 'putt' : 'putts'}`} onClick={() => finishHole(n)}
+                className="grid size-12 place-items-center rounded-full bg-white text-lg font-extrabold text-[#17251c]">{n}</button>)}
+              <button type="button" aria-label={`Start shot · ${clubName ?? '–'}`} disabled={!club} onClick={() => mark()}
+                className="grid size-12 place-items-center rounded-full border border-white/40 text-[11px] font-bold disabled:opacity-40">Shot</button>
+            </div>
+          </>) : (<>
+            <BarButton aria-label="Previous hole" onClick={() => step(-1)}>‹ {prevNo}</BarButton>
+            <button type="button" aria-label={`Change club (${clubName ?? 'none'})`} onClick={() => setClubs(true)}
+              className={cn('grid size-[52px] place-content-center rounded-full bg-white leading-none text-[#17251c]', sug && club === sug.club.id && 'ring-2 ring-orange')}>
+              <b className="text-[15px]">{clubShort ?? 'Club'}</b>{clubYds && <span className="text-[10px] text-[#5b6b60] tabular-nums">{clubYds}</span>}
+            </button>
+            <button type="button" aria-describedby="shot-feedback" onClick={() => mark()} disabled={!club}
+              aria-label={correction ? `Save correction · ${club === PUTTER ? 'Putt' : clubName ?? '–'}` : `Start shot · ${clubName ?? '–'}`}
+              className="-mt-8 grid size-[76px] place-content-center rounded-full border-4 border-[rgb(12_14_13)] bg-primary leading-none font-extrabold text-primary-foreground shadow-lg disabled:opacity-60">
+              <span className="text-base">{correction ? 'Save' : 'Shot'}</span><span className="mt-1 text-[10px] font-semibold opacity-85">#{R.holeScore(hs) + 1}</span>
+            </button>
+            <button type="button" aria-label="Putts (finishes the hole)" onClick={() => setPuttsOpen(true)}
+              className="grid size-[52px] place-items-center rounded-full bg-white text-[13px] font-bold text-[#17251c]">Putts</button>
+            <BarButton aria-label="Next hole" onClick={() => step(1)}>{nextNo} ›</BarButton>
+          </>)}
+        </div>
         <SyncStatus quiet />
-      </section>
+      </div>
 
       <Drawer open={clubs} onOpenChange={setClubs}>
         <DrawerContent>
@@ -366,6 +402,7 @@ export function Play({ roundId }: { roundId: string }) {
               {round.gameId && <Button variant="outline" className="h-12 rounded-full" onClick={() => go(`games/${round.gameId}`)}>Leaderboard</Button>}
               <Button variant="outline" className={cn('h-12 rounded-full', !round.gameId && 'col-span-2')} onClick={() => { setTools(false); setFinishing(true); }}>End round</Button>
             </div>
+            <Button variant="ghost" className="h-12 w-full rounded-full" onClick={() => { setTools(false); leave(); }}>Leave the map (the round keeps going)</Button>
           </div>
         </DrawerContent>
       </Drawer>
@@ -394,13 +431,29 @@ export function Play({ roundId }: { roundId: string }) {
 }
 
 const GLASS = 'bg-background/90 shadow-md backdrop-blur';
+// Dark glass over the satellite map (fixed colors: it sits on imagery, not the page theme).
+const MAP_DARK = 'bg-[rgb(12_14_13/0.84)] backdrop-blur';
+
+// A small yardage circle beside the green (front and back).
+function Dist({ yards, label }: { yards: number | string; label: string }) {
+  return (
+    <div data-yards={label.toLowerCase()} className={cn('ml-2.5 grid size-[52px] place-content-center rounded-full text-center leading-none', MAP_DARK)}>
+      <b className="text-lg tabular-nums">{yards}</b><span className="mt-0.5 text-[9px] tracking-wider text-white/75 uppercase">{label}</span>
+    </div>
+  );
+}
+
+// A plain button inside the dark bar (hole arrows, reopen).
+function BarButton({ className, ...p }: React.ComponentProps<'button'>) {
+  return <button type="button" className={cn('grid min-h-11 min-w-11 place-items-center rounded-full px-1 text-[13px] font-semibold text-white/75', className)} {...p} />;
+}
 
 const scoreName = (d: number) =>
   ['Albatross', 'Eagle', 'Birdie', 'Par', 'Bogey', 'Double bogey', 'Triple bogey'][d + 3] ?? (d > 0 ? `+${d}` : `${d}`);
 
 // The round map button: glass over the map, solid in the card.
 function Circle({ card = false, className, ...p }: React.ComponentProps<typeof Button> & { card?: boolean }) {
-  return <Button variant={card ? 'secondary' : 'ghost'} size="icon" className={cn('shrink-0 rounded-full', card ? 'size-14' : cn('size-12', GLASS), className)} {...p} />;
+  return <Button variant={card ? 'secondary' : 'ghost'} size="icon" className={cn('shrink-0 rounded-full', card ? 'size-12' : cn('size-12', GLASS), className)} {...p} />;
 }
 
 // Up to three bunkers or water near your line to the pin, with yards to reach–carry each.
@@ -410,17 +463,20 @@ function hazardsAhead(hole: Hole, from: LngLat, pin: LngLat, shotYd: number) {
     if (f.type === 'fairway' || pointInPolygon(from, f.polygon)) return [];
     const c = centroid(f.polygon);
     const { d, along } = nearestOnLine(c, [from, pin]);
-    if (d > 40 || along < 20 || along > toPin + 15) return [];
+    if (d > 40 || along < 20) return [];
+    if (distM(c, pin) < 45) return []; // greenside: the yardages beside the pin already cover it
     const { front, back } = frontBack(from, c, f.polygon);
+    if (front > toPin + 10) return []; // behind the green (along is capped at the pin, so check the reach)
     if (back * M_TO_YD < Math.max(60, shotYd / 2)) return []; // carried easily: not in play
     return [{ pos: c, type: f.type, front, text: `${yd(front * M_TO_YD)}–${yd(back * M_TO_YD)}` }];
   }).sort((a, b) => a.front - b.front).slice(0, 3);
 }
 
-function greenTilt(hole: Hole) {
+// The steeper of the two tilts, short enough for the pill: "Back +2.4 ft".
+function mainTilt(hole: Hole) {
   const e = hole.green.elevFt;
   if (e?.front == null || e.back == null || e.left == null || e.right == null) return null;
-  const part = (d: number, hi: string, lo: string) => (Math.abs(d) < 0.5 ? null : `${d > 0 ? hi : lo} ${Math.abs(d).toFixed(1)} ft`);
-  const bits = [part(e.back - e.front, 'back higher', 'front higher'), part(e.right - e.left, 'right higher', 'left higher')].filter(Boolean);
-  return `Green: ${bits.length ? bits.join(', ') : 'fairly flat'}`;
+  const fb = e.back - e.front, lr = e.right - e.left;
+  if (Math.max(Math.abs(fb), Math.abs(lr)) < 0.5) return 'Flat';
+  return Math.abs(fb) >= Math.abs(lr) ? `${fb > 0 ? 'Back' : 'Front'} +${Math.abs(fb).toFixed(1)} ft` : `${lr > 0 ? 'Right' : 'Left'} +${Math.abs(lr).toFixed(1)} ft`;
 }

@@ -107,3 +107,20 @@ describe('setPutts', () => {
     expect(r.holes[1].log).toEqual(['shot', 'holed']);
   });
 });
+
+describe('reopen', () => {
+  it('undoes a putt count in one step and keeps the shots and penalties', () => {
+    const tee = course.holes[0].path![0];
+    const green = course.holes[0].green.center;
+    let r = R.markShot(R.newRound(course, course.tees[0].id), 'dr', tee, 3);
+    r = R.penalty(r);
+    r = R.setPutts(r, 2, green, green);
+    r = R.reopen(r);
+    expect(r.holes[1]).toMatchObject({ putts: 0, penalties: 1, completed: false, log: ['shot', 'pen'] });
+    expect(r.holes[1].shots[0].end).toBeNull();
+    r = R.setPutts(r, 0, null, green);
+    r = R.reopen(r);
+    expect(r.holes[1].shots[0].end).toBeNull();
+    expect(R.holeScore(r.holes[1])).toBe(2);
+  });
+});

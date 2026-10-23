@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { defaultBag } from '../src/lib/clubs';
-import { newRound, emptyHole, markShot, holeDone } from '../src/lib/round';
+import { newRound, emptyHole, markShot, holeDone, setPutts } from '../src/lib/round';
 import { getCourse } from '../src/lib/courses';
 import type { Round } from '../src/schemas/round';
 import type { Fix } from '../src/play/useGeolocation';
@@ -17,7 +17,7 @@ const apiMock = vi.hoisted(() => vi.fn());
 const saveRoundMock = vi.hoisted(() => vi.fn());
 vi.mock('../src/lib/api', () => ({ api: apiMock, SIGNED_OUT: 'signed-out', ACCOUNT_CHANGED: 'account-changed' }));
 vi.mock('../src/lib/store', () => ({ useStore: (select: (s: typeof fixture.state) => unknown) => select(fixture.state), load: vi.fn(async () => {}), sync: vi.fn(async () => {}), setActive: vi.fn(), startRound: vi.fn(), saveRound: saveRoundMock }));
-vi.mock('../src/play/HoleMap', () => ({ HoleMap: () => <div aria-label="Course map" />, labelAt: vi.fn() }));
+vi.mock('../src/play/HoleMap', () => ({ HoleMap: (p: { pinCallout?: React.ReactNode }) => <div aria-label="Course map">{p.pinCallout}</div>, labelAt: vi.fn() }));
 vi.mock('../src/play/useGeolocation', () => ({ useGeolocation: () => ({ fix: fixture.fix, error: fixture.fix ? null : 'Location permission denied', inject: vi.fn() }), useWakeLock: vi.fn() }));
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), message: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: toastMock }));
@@ -93,11 +93,11 @@ describe('profile and game recovery', () => {
       view.rerender(<Play roundId={round.id} />);
     };
     const guidance = () => screen.getByRole('status', { name: 'Shot guidance' }).textContent;
-    expect(guidance()).toBe('');
+    expect(guidance()).toBe(''); // the map carries the numbers; no instructions
     expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#1');
     fireEvent.click(screen.getByRole('button', { name: /Start shot ·/ }));
     refresh();
-    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toBe('');
+    expect(guidance()).toBe('');
     expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#2');
     expect(fixture.state.rounds[round.id].holes[round.current].shots[0]).toMatchObject({ pos: start, end: null });
     clock.mockReturnValue(102_000);
@@ -124,8 +124,9 @@ describe('profile and game recovery', () => {
     const green = [...course.holes[0].green.center] as [number, number];
     fixture.fix = { pos: green, acc: 3, t: Date.now() };
     render(<Play roundId={round.id} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Putts (finishes the hole)' }));
-    fireEvent.click(await screen.findByRole('button', { name: '2 putts' }));
+    // On the green the bar itself is the putt count.
+    expect(screen.queryByRole('button', { name: 'Putts (finishes the hole)' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '2 putts' }));
     const saved = saveRoundMock.mock.lastCall![0];
     expect(saved.holes[1]).toMatchObject({ putts: 2, completed: true });
     expect(saved.holes[1].shots[0].end).toEqual(green);
@@ -152,7 +153,7 @@ describe('profile and game recovery', () => {
     fixture.fix = { pos: [...course.holes[0].path![0]], acc: 2, t: 99_000 };
     const original = [...fixture.fix.pos];
     let view = render(<Play roundId={round.id} />);
-    const originalYards = view.container.querySelector('.text-6xl')!.textContent;
+    const originalYards = view.container.querySelector('[data-yards=center] b')!.textContent;
     const refresh = () => {
       fixture.state.rounds = { [round.id]: saveRoundMock.mock.lastCall![0] };
       view.rerender(<Play roundId={round.id} />);
@@ -166,10 +167,10 @@ describe('profile and game recovery', () => {
     view.rerender(<Play roundId={round.id} />);
     fireEvent.click(screen.getByRole('button', { name: 'Undo last action' }));
     refresh();
-    expect(view.container.querySelector('.text-6xl')!.textContent).toBe(originalYards);
+    expect(view.container.querySelector('[data-yards=center] b')!.textContent).toBe(originalYards);
     view.unmount();
     view = render(<Play roundId={round.id} />);
-    expect(view.container.querySelector('.text-6xl')!.textContent).toBe(originalYards);
+    expect(view.container.querySelector('[data-yards=center] b')!.textContent).toBe(originalYards);
     fireEvent.click(screen.getByRole('button', { name: /^Change club/ }));
     fireEvent.click(screen.getByRole('button', { name: /^7i/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save correction · 7 Iron' }));
@@ -180,7 +181,7 @@ describe('profile and game recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use live GPS' }));
     refresh();
     expect(fixture.state.rounds[round.id].holes[round.current].correction).toBeUndefined();
-    expect(view.container.querySelector('.text-6xl')!.textContent).toBe('0');
+    expect(view.container.querySelector('[data-yards=center] b')!.textContent).toBe('0');
   });
   it('keeps putting and hole tools usable when GPS permission is denied', async () => {
     const course = getCourse('clearview-park')!;
@@ -196,6 +197,34 @@ describe('profile and game recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add a penalty stroke' }));
     expect(saveRoundMock.mock.lastCall?.[0].holes[round.current].penalties).toBe(1);
     expect(screen.getByRole('button', { name: 'Close sheet' })).toBeTruthy();
+  });
+  it('shows a finished hole as a summary, reopens it in one step, and edits putts in place', async () => {
+    const course = getCourse('clearview-park')!;
+    let round = markShot(newRound(course, course.tees[0].id), 'dr', course.holes[0].path![0], 2);
+    round = setPutts(round, 2, course.holes[0].green.center, course.holes[0].green.center);
+    fixture.state.rounds = { [round.id]: round };
+    const view = render(<Play roundId={round.id} />);
+    expect(screen.getByLabelText('Hole summary').textContent).toMatch(/^Driver \d+ · 2 putts$/);
+    expect(screen.getByRole('button', { name: 'Change putts' }).textContent).toMatch(/^3Birdie2 putts$/);
+    expect(view.container.querySelector('[data-yards]')).toBeNull(); // no yardages on a finished hole
+    expect(screen.queryByRole('button', { name: /Start shot/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Change putts' }));
+    fireEvent.click(await screen.findByRole('button', { name: '3 putts' }));
+    expect(saveRoundMock.mock.lastCall![0]).toMatchObject({ current: 1, holes: { 1: { putts: 3, completed: true } } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen hole' }));
+    expect(saveRoundMock.mock.lastCall![0].holes[1]).toMatchObject({ putts: 0, completed: false });
+    expect(saveRoundMock.mock.lastCall![0].holes[1].shots[0].end).toBeNull();
+  });
+  it('steps between holes from the bar, wrapping from 1 to 18', () => {
+    const course = getCourse('clearview-park')!;
+    const round = newRound(course, course.tees[0].id);
+    fixture.state.rounds = { [round.id]: round };
+    render(<Play roundId={round.id} />);
+    expect(screen.getByRole('button', { name: 'Previous hole' }).textContent).toBe('‹ 18');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous hole' }));
+    expect(saveRoundMock.mock.lastCall![0].current).toBe(18);
+    fireEvent.click(screen.getByRole('button', { name: 'Next hole' }));
+    expect(saveRoundMock.mock.lastCall![0].current).toBe(2);
   });
   it('shows the round on a scorecard from the hole name and jumps to a hole from it', async () => {
     const course = getCourse('clearview-park')!;

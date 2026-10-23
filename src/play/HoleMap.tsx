@@ -41,6 +41,7 @@ type Props = {
   hazards?: { pos: LngLat; text: string; type: 'bunker' | 'water' }[];
   shotTags?: { pos: LngLat; text: string }[]; // this hole's shots, labelled where they were hit from
   onTargetMove?: (p: LngLat) => void;
+  pinCallout?: React.ReactNode; // yardages drawn beside the pin (front / center / back)
   onTap: (p: LngLat) => void;
   onClearTarget: () => void;
   onPinMove: (p: LngLat) => void;
@@ -79,13 +80,13 @@ export function HoleMap(p: Props) {
     const g = hole.green.center;
     const recorded = p.shotLines.flat();
     const green = [...(hole.green.polygon ?? [g]), p.pin];
-    const pts = p.review && recorded.length ? [p.from, ...recorded]
+    const pts = p.review && recorded.length ? [p.from, ...recorded, p.pin]
       : p.view === 'green' ? [...green, offset(g, bearing(p.from, g), 12), offset(g, bearing(p.from, g) + 180, 12)]
       : [p.from, ...green, offset(g, bearing(p.from, g), 15)];
     m.resize();
-    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? 65 : 80, bottom: (p.padBottom ?? 0) + 40, left: 56, right: 56 }, duration: p.review ? 0 : 400 });
+    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? (p.padBottom ? 96 : 65) : 130, bottom: (p.padBottom ?? 0) + (p.review ? (p.padBottom ? 80 : 40) : 90), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
     // Only on hole change / view change / explicit recenter, not on every GPS tick.
-  }, [ready, hole, p.recenter, p.view, p.padBottom, moved]);
+  }, [ready, hole, p.recenter, p.view, p.padBottom, p.review, moved]);
 
   return (
     <MapGL
@@ -151,6 +152,7 @@ export function HoleMap(p: Props) {
           <div className={l.compact ? 'grid size-6 place-content-center rounded-full border-2 border-white bg-primary text-xs font-bold text-primary-foreground shadow-md' : p.review ? 'maplabel review' : 'maplabel'}>{l.text}</div>
         </Marker>
       ))}
+      {p.pinCallout && <Marker longitude={p.pin[0]} latitude={p.pin[1]} anchor="left" offset={[24, 0]} style={{ pointerEvents: 'none' }}>{p.pinCallout}</Marker>}
       <Marker
         longitude={p.pin[0]} latitude={p.pin[1]} anchor="bottom-left" offset={[-4, 2]} draggable={!p.review}
         onClick={(e) => e.originalEvent.stopPropagation()}

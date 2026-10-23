@@ -182,8 +182,8 @@
 .maplabel.hazard-bunker { background: rgb(120 90 20 / 0.8); }
 .maplabel.hazard-water { background: rgb(20 80 150 / 0.8); }
 .pin { line-height: 0; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); cursor: grab; }
-/* Keep the map credits visible: the bottom card covers the map's own corner, so sit them just above it. */
-.play .maplibregl-ctrl-bottom-right { bottom: var(--card-h, 0px); }
+/* Keep the map credits visible and clear of the bottom bar's buttons: tuck them under the menu button. */
+.play .maplibregl-ctrl-bottom-right { top: calc(env(safe-area-inset-top) + 4.5rem); bottom: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }

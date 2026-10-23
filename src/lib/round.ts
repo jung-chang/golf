@@ -120,3 +120,16 @@ export const setPutts = (r: Round, n: number, pos: LngLat | null, pin: LngLat, h
     for (let i = 0; i < n; i++) h.log.push('putt');
     h.completed = true;
   }, holeNo);
+
+// Back to playing a finished hole: drop the putt count (or the holed-out finish) in one
+// step, so the last shot is open again. The counterpart of setPutts.
+export const reopen = (r: Round, holeNo = r.current) =>
+  editHole(r, (h) => {
+    const prev = h.shots.at(-1);
+    if (prev && (h.putts > 0 || h.log.includes('holed'))) prev.end = null; // set by putts or holing out
+    h.log = h.log.filter((op) => op !== 'putt' && op !== 'holed');
+    h.putts = 0;
+    h.puttStarts = [];
+    delete h.correction;
+    h.completed = false;
+  }, holeNo);
