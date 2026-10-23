@@ -17,6 +17,7 @@ import { saveRound, setActive, useStore } from '../lib/store';
 import type { Hole } from '../schemas/course';
 import { HoleMap, labelAt } from './HoleMap';
 import { HoleReview } from './HoleReview';
+import { Scorecard } from './Scorecard';
 import { useGeolocation, useWakeLock } from './useGeolocation';
 
 const SIM = new URLSearchParams(location.search).has('sim');
@@ -41,6 +42,8 @@ export function Play({ roundId }: { roundId: string }) {
   const [reviewHole, setReviewHole] = useState<number | null>(null);
   const [clubs, setClubs] = useState(false);
   const [puttsOpen, setPuttsOpen] = useState(false);
+  const [card, setCard] = useState(false);
+  const [lastShot, setLastShot] = useState<string | null>(null); // "Driver · 233 y", shown briefly once measured
   const [viewPick, setViewPick] = useState<'hole' | 'green' | null>(null);
   const cardRef = useRef<HTMLElement>(null);
   const [cardH, setCardH] = useState(0);
@@ -71,6 +74,12 @@ export function Play({ roundId }: { roundId: string }) {
     void elevationFt(from).then((v) => !stale && setHereElev(v));
     return () => { stale = true; };
   }, [fromKey]);
+
+  useEffect(() => {
+    if (!lastShot) return;
+    const t = setTimeout(() => setLastShot(null), 5_000);
+    return () => clearTimeout(t);
+  }, [lastShot]);
 
   // New hole: clear the target, manual club pick and camera choice.
   useEffect(() => { setTarget(null); setPicked(null); setViewPick(null); lastTap.current = null; }, [round.current]);
@@ -137,7 +146,7 @@ export function Play({ roundId }: { roundId: string }) {
 
   function undo() {
     save(R.undo(round));
-    setPicked(null); setTarget(null); lastTap.current = null;
+    setPicked(null); setTarget(null); setLastShot(null); lastTap.current = null;
   }
 
   function mark(force = false) {
@@ -148,6 +157,8 @@ export function Play({ roundId }: { roundId: string }) {
       return void toast.warning(`GPS is only accurate to ±${Math.round(recordingFix.acc * M_TO_YD)} y`, { action: { label: 'Mark anyway', onClick: () => mark(true) } });
     }
     if (!allowStroke('shot')) return;
+    const prev = hs.shots.at(-1);
+    if (prev && !prev.end) setLastShot(`${shortName(bag.clubs.find((c) => c.id === prev.club)?.name ?? prev.club)} · ${yd(distYd(prev.pos, recordingFix.pos))} y`);
     save(R.markShot(round, club, recordingFix.pos, recordingFix.acc));
     setPicked(null);
     setTarget(null);
@@ -164,9 +175,16 @@ export function Play({ roundId }: { roundId: string }) {
   function finishHole(n: number) {
     if (!puttsOpen) return; // a second tap while the sheet closes
     setPuttsOpen(false);
-    const r = R.setPutts(round, n, live ? recordingFix?.pos ?? null : null, pin);
+    // Where you stand ends the approach only if that's on or by this green (not walking to the
+    // next tee) and the fix is good; otherwise leave it unmeasured rather than skew club distances.
+    const byGreen = live && recordingFix && recordingFix.acc <= 25
+      && ((hole!.green.polygon && pointInPolygon(recordingFix.pos, hole!.green.polygon)) || distYd(recordingFix.pos, pin) <= 30);
+    const r = R.setPutts(round, n, byGreen ? recordingFix.pos : null, pin);
     const strokes = R.holeScore(r.holes[round.current]);
-    toast.success(`Hole ${hole!.number}: ${strokes} strokes · ${scoreName(strokes - hole!.par)}`);
+    // The approach is measured now (to where you stand on the green), so say how far it went.
+    const approach = open && n > 0 ? r.holes[round.current].shots.at(-1) : null;
+    const measured = approach?.end ? ` · approach ${shortName(bag.clubs.find((c) => c.id === approach.club)?.name ?? approach.club)} ${yd(shotYards(approach))} y` : '';
+    toast.success(`Hole ${hole!.number}: ${strokes} strokes · ${scoreName(strokes - hole!.par)}${measured}`);
     if (!last) {
       const nums = course!.holes.map((h) => h.number);
       return save({ ...r, current: nums[nums.indexOf(round.current) + 1] }, true);
@@ -184,11 +202,12 @@ export function Play({ roundId }: { roundId: string }) {
   // Leaving keeps the round going (the strip at the top of the app resumes it).
   const leave = () => go(round.gameId ? `games/${round.gameId}` : 'golf');
   const open = hs.shots.at(-1)?.end === null ? hs.shots.at(-1)! : null; // hit, not yet measured
-  const hint = correction ? 'Stroke removed. Pick the club and Save, or use live GPS.'
+  // Facts only (what's recorded, how far it's gone), never instructions.
+  const hint = correction ? 'Stroke removed'
     : hs.completed ? `Done · ${R.holeScore(hs)} strokes · ${scoreName(R.holeScore(hs) - hole.par)}`
-    : nearGreen ? 'Holed out? Tap Putts.'
-    : open ? (live && fix ? `${shortName(bag.clubs.find((c) => c.id === open.club)?.name ?? open.club)} · ${yd(distYd(open.pos, fix.pos))} y so far · tap Shot at your ball` : `Shot ${hs.shots.length} started. Walk to your ball.`)
-    : played.length ? '' : 'At your ball? Tap Shot before you swing.';
+    : open && live && fix && !nearGreen && distYd(open.pos, fix.pos) >= 10
+      ? `${shortName(bag.clubs.find((c) => c.id === open.club)?.name ?? open.club)} · ${yd(distYd(open.pos, fix.pos))} y so far`
+    : '';
   const gpsNote = error ? `GPS: ${error}` : !fix ? (SIM ? 'Sim: long-press to place yourself' : 'Finding GPS…')
     : fix.acc > 15 ? `GPS ±${Math.round(fix.acc * M_TO_YD)} y` : !live ? 'Off the hole · from the tee' : null;
 
@@ -226,10 +245,13 @@ export function Play({ roundId }: { roundId: string }) {
         <Circle aria-label="Leave the map (the round keeps going)" onClick={leave}><X /></Circle>
         <div className={cn('flex h-12 min-w-0 flex-1 items-center rounded-full', GLASS)}>
           <Button variant="ghost" size="icon" className="size-12 shrink-0 rounded-full" aria-label="Previous hole" onClick={() => step(-1)}><ChevronLeft /></Button>
-          <div className="min-w-0 flex-1 text-center leading-tight">
-            <p className="truncate text-base font-bold">Hole {hole.number}</p>
-            <p className="truncate text-xs text-muted-foreground">Par {hole.par}{hole.yards?.[round.teeId] ? ` · ${hole.yards[round.teeId]} y` : ''}</p>
-          </div>
+          <button type="button" aria-label={`Hole ${hole.number}${scored.length ? `, ${R.fmtToPar(scoredToPar)} thru ${scored.length}` : ''}, scorecard`} onClick={() => setCard(true)} className="min-w-0 flex-1 text-center leading-tight">
+            <span className="block truncate text-base font-bold">Hole {hole.number}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              Par {hole.par}{hole.yards?.[round.teeId] ? ` · ${hole.yards[round.teeId]} y` : ''}
+              {scored.length > 0 && <> · <b className="text-foreground">{R.fmtToPar(scoredToPar)}</b> thru {scored.length}</>}
+            </span>
+          </button>
           <Button variant="ghost" size="icon" className="size-12 shrink-0 rounded-full" aria-label="Next hole" onClick={() => step(1)}><ChevronRight /></Button>
         </div>
       </header>
@@ -255,7 +277,7 @@ export function Play({ roundId }: { roundId: string }) {
           <p className="text-center leading-none">{fb && <><b className="text-2xl">{yd(fb.back * M_TO_YD)}</b><span className="mt-1 block text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase">Back</span></>}</p>
         </div>
         <p className="mt-1.5 min-h-4 text-center text-xs text-muted-foreground">
-          {aimAt ? `${target ? 'Target' : 'Layup'} ${yd(aim)} · leaves ${yd(distYd(aimAt, pin))} · drag to move`
+          {aimAt ? `${target ? 'Target' : 'Layup'} ${yd(aim)} · leaves ${yd(distYd(aimAt, pin))}`
             : view === 'green' ? greenTilt(hole) ?? ''
             : dz != null && Math.abs(dz) >= 1 ? `Plays ${yd(aim)} (${dz > 0 ? '↑' : '↓'}${Math.abs(dz).toFixed(0)} ft)` : ''}
         </p>
@@ -271,7 +293,10 @@ export function Play({ roundId }: { roundId: string }) {
         </div>
 
         <p id="shot-feedback" role="status" aria-label="Shot guidance" className="mt-2 min-h-4 text-center text-xs text-muted-foreground">
-          {hint}
+          {lastShot
+            // The shot you just finished, in the card so the map (and your dot) stay clear.
+            ? <span aria-label="Last shot" className="rounded-full bg-[#f26522] px-2.5 font-bold text-white">{lastShot}</span>
+            : hint}
         </p>
         {correction && <Button variant="ghost" className="mt-1 min-h-11 w-full rounded-full" onClick={() => { save(R.editHole(round, h => { delete h.correction; })); setPicked(null); setTarget(null); lastTap.current = null; }}>Use live GPS</Button>}
         <SyncStatus quiet />
@@ -279,7 +304,7 @@ export function Play({ roundId }: { roundId: string }) {
 
       <Drawer open={clubs} onOpenChange={setClubs}>
         <DrawerContent>
-          <DrawerHeader><DrawerTitle>Club</DrawerTitle><DrawerDescription>{sug ? `${sug.club.name} gets you ${yd(aim)}.` : 'Pick what you are hitting.'}</DrawerDescription></DrawerHeader>
+          <DrawerHeader><DrawerTitle>Club</DrawerTitle><DrawerDescription>{sug ? `${sug.club.name} for ${yd(aim)}` : `${yd(aim)} y`}</DrawerDescription></DrawerHeader>
           <div className="grid grid-cols-4 justify-items-center gap-3 px-5 pb-6">
             {bag.clubs.filter((c) => c.on && c.id !== PUTTER).map((c) => {
               const y = clubYards(c, stats, bag.useTracked);
@@ -301,14 +326,14 @@ export function Play({ roundId }: { roundId: string }) {
       <Drawer open={puttsOpen} onOpenChange={setPuttsOpen}>
         <DrawerContent>
           <DrawerHeader><DrawerTitle>Putts on hole {hole.number}</DrawerTitle>
-            <DrawerDescription>{R.holeScore(hs) - hs.putts} {R.holeScore(hs) - hs.putts === 1 ? 'stroke' : 'strokes'} to the green. Picking finishes the hole.</DrawerDescription></DrawerHeader>
+            <DrawerDescription>{R.holeScore(hs) - hs.putts} {R.holeScore(hs) - hs.putts === 1 ? 'stroke' : 'strokes'} to the green</DrawerDescription></DrawerHeader>
           <div className="flex justify-center gap-3 px-5">
             {[1, 2, 3, 4].map((n) => (
               <button key={n} type="button" aria-label={`${n} ${n === 1 ? 'putt' : 'putts'}`} onClick={() => finishHole(n)}
                 className={cn('grid size-16 place-content-center rounded-full border bg-background text-2xl font-bold tabular-nums', n === 2 && 'border-primary ring-2 ring-primary')}>{n}</button>
             ))}
           </div>
-          <Button variant="ghost" className="mx-5 mt-3 mb-5 min-h-11 rounded-full" onClick={() => finishHole(0)}>Holed it from off the green (no putts)</Button>
+          <Button variant="ghost" className="mx-5 mt-3 mb-5 min-h-11 rounded-full" onClick={() => finishHole(0)}>Holed out · no putts</Button>
         </DrawerContent>
       </Drawer>
 
@@ -324,7 +349,7 @@ export function Play({ roundId }: { roundId: string }) {
             </div>
             <Button variant="outline" className="h-12 w-full rounded-full" onClick={() => save(R.penalty(round))}>Add a penalty stroke</Button>
             {hs.shots.length > 0 && <div>
-              <p className="mb-2 text-sm text-muted-foreground">Tap a shot to mark a mishit (left out of club distances).</p>
+              <p className="mb-2 text-sm text-muted-foreground">Mishits</p>
               <div className="flex flex-wrap gap-1.5">
                 {hs.shots.map((s, i) => (
                   <button key={i} type="button" aria-pressed={s.mishit} onClick={() => save(R.toggleMishit(round, i))}
@@ -361,6 +386,8 @@ export function Play({ roundId }: { roundId: string }) {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+      <Scorecard course={course} round={round} open={card} onOpenChange={setCard}
+        onPick={(n) => { setCard(false); save({ ...round, current: n, updatedAt: new Date().toISOString() }); }} />
       {reviewed && <HoleReview key={reviewed.number} hole={reviewed} state={round.holes[reviewed.number] ?? R.emptyHole()} bag={bag} onClose={() => setReviewHole(null)} />}
     </div>
   );

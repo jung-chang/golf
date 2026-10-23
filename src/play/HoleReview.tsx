@@ -46,7 +46,7 @@ export function HoleReview({ hole, state, bag, onClose }: { hole: Hole; state: H
           onClick={() => setSelected(selected == null ? 0 : Math.min(strokes.length - 1, selected + 1))}><ChevronRight /></Button>
       </div>
       <p role="status" aria-label="Replay position" className="shrink-0 px-4 pt-2 text-xs text-muted-foreground">
-        {selected == null ? 'Whole hole · tap a stroke or use the arrows to replay' : `Stroke ${selected + 1} of ${strokes.length} · ${strokes[selected].label} · ${reviewDistance(strokes[selected])}`}
+        {selected == null ? `Whole hole · ${strokes.length} ${strokes.length === 1 ? 'stroke' : 'strokes'}` : `Stroke ${selected + 1} of ${strokes.length} · ${strokes[selected].label} · ${reviewDistance(strokes[selected])}`}
       </p>
       <div className="min-h-0 overflow-y-auto px-4 pb-4">
         {!strokes.length && <p className="py-3 text-sm text-muted-foreground">No strokes recorded for this hole.</p>}
@@ -56,7 +56,6 @@ export function HoleReview({ hole, state, bag, onClose }: { hole: Hole; state: H
           <span className="flex-1">{s.label}</span><span className="text-right text-xs text-muted-foreground">{reviewDistance(s)}</span>
         </button>)}
         {state.adj !== 0 && <p className="mt-2 text-xs text-muted-foreground">Score includes {state.adj > 0 ? '+' : ''}{state.adj} manual adjustment; those strokes have no recorded order or position.</p>}
-        <p className="mt-2 text-xs text-muted-foreground">Lines join saved positions. Missing finishes are left unmeasured; the pin remains an estimate.</p>
       </div>
     </DrawerContent>
   </Drawer>;

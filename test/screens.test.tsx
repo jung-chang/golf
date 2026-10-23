@@ -19,6 +19,8 @@ vi.mock('../src/lib/api', () => ({ api: apiMock, SIGNED_OUT: 'signed-out', ACCOU
 vi.mock('../src/lib/store', () => ({ useStore: (select: (s: typeof fixture.state) => unknown) => select(fixture.state), load: vi.fn(async () => {}), sync: vi.fn(async () => {}), setActive: vi.fn(), startRound: vi.fn(), saveRound: saveRoundMock }));
 vi.mock('../src/play/HoleMap', () => ({ HoleMap: () => <div aria-label="Course map" />, labelAt: vi.fn() }));
 vi.mock('../src/play/useGeolocation', () => ({ useGeolocation: () => ({ fix: fixture.fix, error: fixture.fix ? null : 'Location permission denied', inject: vi.fn() }), useWakeLock: vi.fn() }));
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), message: vi.fn(), error: vi.fn(), warning: vi.fn() }));
+vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: toastMock }));
 vi.mock('../src/lib/elevation', () => ({ elevationFt: async () => null, playsLike: (yards: number) => yards }));
 vi.mock('../src/lib/push', () => ({ pushSupported: () => false, pushEnabled: async () => false, needsInstall: () => false, enablePush: vi.fn(), disablePush: vi.fn() }));
 vi.mock('../src/lib/theme', () => ({ useTheme: () => 'light', useResolvedTheme: () => 'light', setTheme: vi.fn() }));
@@ -91,11 +93,11 @@ describe('profile and game recovery', () => {
       view.rerender(<Play roundId={round.id} />);
     };
     const guidance = () => screen.getByRole('status', { name: 'Shot guidance' }).textContent;
-    expect(guidance()).toBe('At your ball? Tap Shot before you swing.');
+    expect(guidance()).toBe('');
     expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#1');
     fireEvent.click(screen.getByRole('button', { name: /Start shot ·/ }));
     refresh();
-    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toBe('Driver · 0 y so far · tap Shot at your ball');
+    expect(screen.getByRole('status', { name: 'Shot guidance' }).textContent).toBe('');
     expect(screen.getByRole('button', { name: /Start shot ·/ }).textContent).toContain('#2');
     expect(fixture.state.rounds[round.id].holes[round.current].shots[0]).toMatchObject({ pos: start, end: null });
     clock.mockReturnValue(102_000);
@@ -108,9 +110,10 @@ describe('profile and game recovery', () => {
     expect(shots).toHaveLength(2);
     expect(shots[0].end).toEqual(nextBall);
     expect(shots[1].pos).toEqual(nextBall);
+    expect(screen.getByLabelText('Last shot').textContent).toMatch(/^Driver · \d+ y$/);
     fireEvent.click(screen.getByRole('button', { name: 'Undo last action' }));
     refresh();
-    expect(guidance()).toContain('Stroke removed.');
+    expect(guidance()).toBe('Stroke removed');
     expect(screen.getByRole('button', { name: 'Save correction · Driver' })).toBeTruthy();
     expect(fixture.state.rounds[round.id].holes[round.current].shots[0].end).toBeNull();
   });
@@ -127,6 +130,19 @@ describe('profile and game recovery', () => {
     expect(saved.holes[1]).toMatchObject({ putts: 2, completed: true });
     expect(saved.holes[1].shots[0].end).toEqual(green);
     expect(saved.current).toBe(course.holes[1].number);
+    expect(toastMock.success).toHaveBeenLastCalledWith(expect.stringMatching(/^Hole 1: 3 strokes · Birdie · approach 7i \d+ y$/));
+  });
+  it('leaves the approach unmeasured when putts are entered away from the green', async () => {
+    const course = getCourse('clearview-park')!;
+    const round = markShot(newRound(course, course.tees[0].id), '7i', course.holes[0].path![0], 2);
+    fixture.state.rounds = { [round.id]: round };
+    fixture.fix = { pos: [...course.holes[1].tees!.white.pos], acc: 3, t: Date.now() }; // walked to the next tee
+    render(<Play roundId={round.id} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Putts (finishes the hole)' }));
+    fireEvent.click(await screen.findByRole('button', { name: '2 putts' }));
+    expect(saveRoundMock.mock.lastCall![0].holes[1]).toMatchObject({ putts: 2, completed: true });
+    expect(saveRoundMock.mock.lastCall![0].holes[1].shots[0].end).toBeNull();
+    expect(toastMock.success).toHaveBeenLastCalledWith('Hole 1: 3 strokes · Birdie');
   });
   it('restores saved yardage after walking, survives remount, and corrects without moving the shot', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
@@ -180,6 +196,21 @@ describe('profile and game recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add a penalty stroke' }));
     expect(saveRoundMock.mock.lastCall?.[0].holes[round.current].penalties).toBe(1);
     expect(screen.getByRole('button', { name: 'Close sheet' })).toBeTruthy();
+  });
+  it('shows the round on a scorecard from the hole name and jumps to a hole from it', async () => {
+    const course = getCourse('clearview-park')!;
+    let round = markShot(newRound(course, course.tees[0].id), 'dr', course.holes[0].path![0], 2);
+    round = holeDone({ ...round, holes: { ...round.holes, 1: { ...round.holes[1], putts: 4 } } }, course.holes[0].green.center);
+    round = { ...round, current: course.holes[1].number };
+    fixture.state.rounds = { [round.id]: round };
+    render(<Play roundId={round.id} />);
+    const pill = screen.getByRole('button', { name: 'Hole 2, +1 thru 1, scorecard' });
+    expect(pill.textContent).toContain('+1 thru 1');
+    fireEvent.click(pill);
+    await screen.findByRole('table', { name: 'Front nine' });
+    expect(screen.getByRole('button', { name: 'Hole 1, 5' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hole 7' }));
+    expect(saveRoundMock.mock.lastCall![0].current).toBe(7);
   });
   it('keeps a completed hole review available after moving to the next tee', () => {
     const course = getCourse('clearview-park')!;
