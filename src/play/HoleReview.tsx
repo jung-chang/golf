@@ -12,7 +12,7 @@ import { HoleMap, labelAt } from './HoleMap';
 import type { LngLat } from '@/lib/geo';
 import { shortName } from '@/lib/clubs';
 
-export function HoleReview({ hole, state, bag, onClose }: { hole: Hole; state: HoleState; bag: Bag; onClose: () => void }) {
+export function HoleReview({ hole, state, bag, onClose, onEdit }: { hole: Hole; state: HoleState; bag: Bag; onClose: () => void; onEdit?: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
   const strokes = reviewStrokes(state, bag);
   const shown = strokes.flatMap((stroke, index) => selected == null || selected === index ? [{ ...stroke, index }] : []);
@@ -39,6 +39,7 @@ export function HoleReview({ hole, state, bag, onClose }: { hole: Hole; state: H
           onTap={() => {}} onClearTarget={() => {}} onPinMove={() => {}} />
       </div>
       <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
+        {onEdit && <Button className="min-h-11" onClick={onEdit}>Edit hole</Button>}
         <Button variant="outline" size="icon" className="size-11" aria-label="Previous stroke" disabled={!strokes.length || selected === 0}
           onClick={() => setSelected(selected == null ? strokes.length - 1 : Math.max(0, selected - 1))}><ChevronLeft /></Button>
         <Button variant={selected == null ? 'secondary' : 'ghost'} className="min-h-11" aria-pressed={selected == null} onClick={() => setSelected(null)}>Whole hole</Button>

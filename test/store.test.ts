@@ -55,6 +55,28 @@ afterEach(() => {
 });
 
 describe('member-owned golf storage', () => {
+  it('persists an explicit pending shot offline and restores its start after reload', async () => {
+    let store = await ready();
+    const { getCourse } = await import('../src/lib/courses');
+    const { startTrackedShot, saveTrackedShot } = await import('../src/lib/tracking');
+    const course = getCourse('clearview-park')!;
+    const r = store.startRound(course, 'white');
+    await store.sync(); online = false;
+    const pos = course.holes[0].tees!.white.pos;
+    const pending = startTrackedShot(r, 'dr', { pos, acc: 3, t: Date.now() });
+    store.saveRound(pending);
+    await vi.waitFor(() => expect(db.table(`golf-rounds:${email}`).get(r.id)).toEqual(pending));
+    vi.resetModules(); store = await ready();
+    expect(store.getState().rounds[r.id].holes[1].pendingShot).toEqual(pending.holes[1].pendingShot);
+    const saved = saveTrackedShot(store.getState().rounds[r.id], null);
+    store.saveRound(saved); await store.sync();
+    expect(saved.holes[1].shots).toHaveLength(1);
+    expect(saved.holes[1].shots[0]).toMatchObject({ pos, end: null });
+    expect(saved.holes[1].pendingShot).toBeUndefined();
+    online = true; await store.sync();
+    expect(fetchMock.mock.calls.some(([url, init]) => url === `/api/rounds/${r.id}` && init?.method === 'PUT'
+      && JSON.parse(init.body as string).holes[1]?.shots.length === 1)).toBe(true);
+  });
   it('does not open the previous member after an online timeout or expired login', async () => {
     localStorage.setItem('golf.member', 'previous@example.test');
     fetchMock.mockRejectedValueOnce(new Error('Timed out'));

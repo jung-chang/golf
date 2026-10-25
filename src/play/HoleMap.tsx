@@ -36,11 +36,15 @@ type Props = {
   target: LngLat | null;
   labels: { pos: LngLat; text: string; offset?: [number, number]; compact?: boolean }[];
   shotLines: [LngLat, LngLat][];
+  shotFeatures?: { id: string; start: LngLat; end: LngLat; selected?: boolean; suggested?: boolean }[];
+  onSelectShot?: (id: string) => void;
+  focusPoints?: LngLat[];
+  editing?: { start: LngLat | null; end: LngLat | null; active: 'pos' | 'end'; onPick: (key: 'pos' | 'end') => void; onMove: (key: 'pos' | 'end', pos: LngLat) => void };
   recenter: number; // bump to re-fit the camera
   view?: 'hole' | 'green'; // the whole hole from you, or zoomed on the green
   padBottom?: number; // px hidden under the bottom card
   hazards?: { pos: LngLat; text: string; type: 'bunker' | 'water' }[];
-  shotTags?: { pos: LngLat; text: string }[]; // this hole's shots, labelled where they were hit from
+  shotTags?: { pos: LngLat; text: string; shotId?: string }[];
   onTargetMove?: (p: LngLat) => void;
   pinCallout?: React.ReactNode; // yardages drawn beside the pin (front / center / back)
   padTop?: number; // px kept clear at the top (hole label, location banner)
@@ -82,11 +86,11 @@ export function HoleMap(p: Props) {
     const g = hole.green.center;
     const recorded = p.shotLines.flat();
     const green = [...(hole.green.polygon ?? [g]), p.pin];
-    const pts = p.review && recorded.length ? [p.from, ...recorded, p.pin]
+    const pts = p.focusPoints?.length ? p.focusPoints : p.review && recorded.length ? [p.from, ...recorded, p.pin]
       : p.view === 'green' ? [...green, offset(g, bearing(p.from, g), 12), offset(g, bearing(p.from, g) + 180, 12)]
       : [p.from, ...green, offset(g, bearing(p.from, g), 15)];
     m.resize();
-    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), padding: { top: p.review ? (p.padBottom ? 96 : 65) : p.padTop ?? 130, bottom: (p.padBottom ?? 0) + (p.review ? (p.padBottom ? 80 : 40) : 90), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
+    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), maxZoom: p.focusPoints ? 19 : 21, padding: { top: p.review ? (p.padBottom ? 96 : 65) : p.padTop ?? 130, bottom: Math.min((p.padBottom ?? 0) + 80, m.getContainer().clientHeight - 180), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
     // Only on hole change / view change / explicit recenter, not on every GPS tick.
   }, [ready, hole, p.recenter, p.view, p.padBottom, p.padTop, p.review, moved]);
 
@@ -106,7 +110,13 @@ export function HoleMap(p: Props) {
         e.target.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
         setReady(true);
       }}
-      onClick={(e) => { if (!p.review) p.onTap([e.lngLat.lng, e.lngLat.lat]); }}
+      interactiveLayerIds={p.onSelectShot ? ['shot-hit'] : undefined}
+      onClick={(e) => {
+        if (p.editing) return p.onTap([e.lngLat.lng, e.lngLat.lat]);
+        const id = e.features?.[0]?.properties?.id;
+        if (id && p.onSelectShot) return p.onSelectShot(String(id));
+        if (!p.review) p.onTap([e.lngLat.lng, e.lngLat.lat]);
+      }}
       onContextMenu={(e) => p.onLongPress?.([e.lngLat.lng, e.lngLat.lat])}
     >
       <Source id="hole" type="geojson" data={outlines}>
@@ -119,11 +129,13 @@ export function HoleMap(p: Props) {
         <Layer id="acc-fill" type="fill" paint={{ 'fill-color': '#1a73e8', 'fill-opacity': 0.15 }} />
         <Layer id="acc-edge" type="line" paint={{ 'line-color': '#1a73e8', 'line-opacity': 0.4, 'line-width': 1 }} />
       </Source>
-      <Source id="shots" type="geojson" data={fc(p.shotLines.map((l) => lineF(l)))}>
-        <Layer id="shots-casing" type="line" layout={{ 'line-cap': 'round' }} paint={{ 'line-color': '#fff', 'line-width': 5 }} />
-        <Layer id="shots" type="line" layout={{ 'line-cap': 'round' }} paint={{ 'line-color': '#f26522', 'line-width': 3 }} />
+      <Source id="shots" type="geojson" data={fc(p.shotFeatures ? p.shotFeatures.map(s => lineF([s.start, s.end], { id: s.id, selected: !!s.selected, suggested: !!s.suggested })) : p.shotLines.map(l => lineF(l)))}>
+        <Layer id="shot-hit" type="line" paint={{ 'line-width': 30, 'line-opacity': 0 }} />
+        <Layer id="shots-casing" type="line" paint={{ 'line-color': '#000', 'line-opacity': 0.2, 'line-width': 5 }} />
+        <Layer id="shots" type="line" paint={{ 'line-color': ['case', ['any', ['boolean', ['get', 'selected'], false], ['boolean', ['get', 'suggested'], false]], '#ffb52e', '#fff'],
+          'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': p.editing ? ['case', ['boolean', ['get', 'selected'], false], 1, 0.18] : 0.9 }} />
       </Source>
-      <Source id="aim" type="geojson" data={fc(p.review ? [] : [lineF(p.target ? [p.from, p.target, p.pin] : [p.from, p.pin])])}>
+      <Source id="aim" type="geojson" data={fc(p.review || p.editing ? [] : [lineF(p.target ? [p.from, p.target, p.pin] : [p.from, p.pin])])}>
         <Layer id="aim-casing" type="line" layout={{ 'line-join': 'round' }} paint={{ 'line-color': 'rgba(0,0,0,0.3)', 'line-width': 4 }} />
         <Layer id="aim" type="line" layout={{ 'line-join': 'round' }} paint={{ 'line-color': '#fff', 'line-width': 2 }} />
       </Source>
@@ -134,7 +146,9 @@ export function HoleMap(p: Props) {
       </Marker>}
       {p.shotTags?.map((t, i) => (
         <Marker key={`st${i}`} longitude={t.pos[0]} latitude={t.pos[1]} anchor="left" offset={[-6, 0]}>
-          <div className="shot-tag"><i />{t.text}</div>
+          {p.onSelectShot && t.shotId ? <button type="button" className="min-h-11 rounded-full border-2 border-white bg-black/80 px-3 text-xs font-semibold text-white shadow-md"
+            aria-label={`Edit ${t.text}`} onClick={e => { e.stopPropagation(); p.onSelectShot!(t.shotId!); }}>{t.text}</button>
+            : <div className="shot-tag"><i />{t.text}</div>}
         </Marker>
       ))}
       {p.target && (
@@ -155,6 +169,22 @@ export function HoleMap(p: Props) {
         </Marker>
       ))}
       {p.pinCallout && <Marker longitude={p.pin[0]} latitude={p.pin[1]} anchor="left" offset={[24, 0]} style={{ pointerEvents: 'none' }}>{p.pinCallout}</Marker>}
+      {p.editing && (['pos', 'end'] as const).map(key => {
+        const position = key === 'pos' ? p.editing!.start : p.editing!.end;
+        if (!position) return null;
+        return <Marker key={key} longitude={position[0]} latitude={position[1]} draggable
+          onClick={e => { e.originalEvent.stopPropagation(); p.editing!.onPick(key); }}
+          onDragEnd={e => p.editing!.onMove(key, [e.lngLat.lng, e.lngLat.lat])}>
+          <button type="button" aria-label={`Move shot ${key === 'pos' ? 'start' : 'finish'}`} aria-pressed={p.editing!.active === key}
+            className="grid size-11 place-items-center rounded-full border-[3px] border-white bg-[#ffb52e] text-[11px] font-bold text-[#2b1d05] shadow-lg outline-offset-4 aria-pressed:outline-2 aria-pressed:outline-[#ffb52e]"
+            onKeyDown={e => {
+              const directions: Record<string, number> = { ArrowUp: 0, ArrowRight: 90, ArrowDown: 180, ArrowLeft: 270 };
+              if (!(e.key in directions)) return;
+              e.preventDefault(); e.stopPropagation();
+              p.editing!.onMove(key, offset(position, bearing(p.from, p.pin) + directions[e.key], 0.9144));
+            }}>{key === 'pos' ? 'Start' : 'Finish'}</button>
+        </Marker>;
+      })}
       <Marker
         longitude={p.pin[0]} latitude={p.pin[1]} anchor="bottom-left" offset={[-4, 2]} draggable={!p.review}
         onClick={(e) => e.originalEvent.stopPropagation()}

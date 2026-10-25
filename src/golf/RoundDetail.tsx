@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button';
 import { shotYards } from '@/lib/clubs';
 import { go } from '@/lib/nav';
 import { fmtToPar, holeScore, playedHoles, toPar, totalScore } from '@/lib/round';
-import { deleteRound, setActive, useStore } from '@/lib/store';
+import { deleteRound, getState, saveRound, setActive, useStore } from '@/lib/store';
+import { commitHoleEdit } from '@/lib/tracking';
 import { cn } from '@/lib/utils';
 import type { Round } from '@/schemas/round';
 import { getCourse } from '@/lib/courses';
 
 const HoleReview = lazy(() => import('../play/HoleReview').then(m => ({ default: m.HoleReview })));
+const HoleEditor = lazy(() => import('../play/HoleEditor').then(m => ({ default: m.HoleEditor })));
 
 /** Score cell: under par in green, bogey in sand, double or worse in tangerine. */
 function scoreClass(score: number, par: number) {
@@ -53,11 +55,13 @@ export function RoundDetail({ id }: { id: string }) {
   const bag = useStore((s) => s.bag);
   const [confirming, setConfirming] = useState(false);
   const [reviewHole, setReviewHole] = useState<number | null>(null);
+  const [editingHole, setEditingHole] = useState<number | null>(null);
   if (!r) return <><PageHeader back={() => go('golf')} title="Round" /><Empty icon={<Flag />} title="Round not found" /></>;
 
   const nums = Object.keys(r.pars).map(Number).sort((a, b) => a - b);
   const course = getCourse(r.courseId);
   const reviewed = course?.holes.find(h => h.number === reviewHole);
+  const editing = course?.holes.find(h => h.number === editingHole);
   const name = (club: string) => bag.clubs.find((c) => c.id === club)?.name ?? club;
   const played = playedHoles(r).length;
   const putts = nums.reduce((s, n) => s + (r.holes[n]?.putts ?? 0), 0);
@@ -89,7 +93,7 @@ export function RoundDetail({ id }: { id: string }) {
                   <span className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                     {h.shots.map((s, i) => (
                       <span key={i} className={cn('rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground', s.mishit && 'line-through opacity-60')}>
-                        {name(s.club)}{s.end ? ` ${Math.round(shotYards(s)!)}` : ''}
+                        {name(s.club)}{shotYards(s) != null ? ` ${Math.round(shotYards(s)!)}` : ''}
                       </span>
                     ))}
                     {h.putts > 0 && <span className="rounded-full bg-accent px-2 py-0.5 text-xs text-accent-foreground">{h.putts} {h.putts === 1 ? 'putt' : 'putts'}</span>}
@@ -115,8 +119,12 @@ export function RoundDetail({ id }: { id: string }) {
         </div>
       </div>
       {reviewed && <Suspense fallback={<p role="status" className="fixed inset-x-4 bottom-4 z-50 rounded-xl bg-card p-4 shadow-md">Loading hole review…</p>}>
-        <HoleReview key={reviewed.number} hole={reviewed} state={r.holes[reviewed.number]} bag={bag} onClose={() => setReviewHole(null)} />
+        <HoleReview key={reviewed.number} hole={reviewed} state={r.holes[reviewed.number]} bag={bag} onClose={() => setReviewHole(null)}
+          onEdit={() => { setReviewHole(null); setEditingHole(reviewed.number); }} />
       </Suspense>}
+      {editing && <Suspense fallback={<p role="status">Loading hole editor…</p>}><HoleEditor key={editing.number} hole={editing}
+        state={r.holes[editing.number]} bag={bag} teeId={r.teeId} activeHole={r.done ? undefined : r.current} onClose={() => setEditingHole(null)}
+        onSave={(expected, draft) => { const latest = getState().rounds[id]; if (!latest) throw new Error('This round is no longer available.'); saveRound(commitHoleEdit(latest, editing.number, expected, draft)); setEditingHole(null); }} /></Suspense>}
     </div>
   );
 }

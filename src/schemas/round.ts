@@ -3,15 +3,22 @@ import { z } from 'zod';
 import { LngLat } from './course';
 
 export const Shot = z.object({
+  id: z.string().optional(), // stable for new shots; old rounds retain their geometry
   club: z.string(),
-  pos: LngLat, // where it was hit from
-  end: LngLat.nullable(), // where it finished; set by the next shot, first putt, or holing out
+  pos: LngLat.nullable(), // unknown starts count toward score without inventing a position
+  end: LngLat.nullable(), // explicit saved finish; legacy rounds may contain inferred finishes
   acc: z.number().nonnegative(), // GPS accuracy, meters
   t: z.number(), // epoch ms
   mishit: z.boolean().default(false),
+  origin: z.enum(['gps', 'manual', 'recovered']).optional(),
+  endAcc: z.number().nonnegative().nullable().optional(),
+  endT: z.number().optional(),
+  startSource: z.enum(['gps', 'tee', 'last-finish', 'manual', 'unknown']).optional(),
 });
 
 export const HoleState = z.object({
+  trackingVersion: z.literal(2).optional(),
+  pendingShot: Shot.optional(), // persisted start; saving its finish counts the stroke once
   completed: z.boolean().optional(),
   shots: z.array(Shot),
   correction: Shot.optional(), // undone stroke, kept until corrected or explicitly discarded

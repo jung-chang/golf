@@ -18,7 +18,7 @@ export function defaultBag(): Bag {
   };
 }
 
-export const shotYards = (s: Shot) => (s.end ? distYd(s.pos, s.end) : null);
+export const shotYards = (s: Shot) => (s.pos && s.end ? distYd(s.pos, s.end) : null);
 
 // Longer than anyone hits it: a shot marked from somewhere else (testing at home, a stale fix).
 export const MAX_SHOT_YD = 400;
@@ -33,9 +33,13 @@ export function trackedShots(rounds: Round[]): TrackedShot[] {
   for (const r of rounds) {
     for (const h of Object.values(r.holes)) {
       for (const s of h.shots) {
-        if (s.club === PUTTER || s.mishit || !s.end) continue;
+        if (s.club === PUTTER || s.mishit || !s.pos || !s.end || s.origin === 'manual' || s.origin === 'recovered') continue;
         const yd = shotYards(s)!;
-        if (yd > MAX_SHOT_YD) continue;
+        if (!Number.isFinite(yd) || yd <= 0 || yd > MAX_SHOT_YD) continue;
+        // New explicit measurements need both endpoint qualities. Short chips and
+        // uncertain geometry are score records, not full-swing distance samples.
+        if (s.origin === 'gps' && (s.endAcc == null || s.acc > 8 || s.endAcc > 8 || yd < 60
+          || (s.acc + s.endAcc) * 1.0936133 > yd * 0.2)) continue;
         out.push({ club: s.club, yd, t: s.t });
       }
     }

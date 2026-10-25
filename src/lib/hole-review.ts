@@ -25,7 +25,7 @@ export function reviewStrokes(hole: HoleState, bag: Bag): ReviewStroke[] {
       const s = hole.shots[shot++];
       if (!s) continue;
       entries.push({ kind: 'shot', label: `${name(s.club)}${s.mishit ? ' · mishit' : ''}`, position: s.pos, end: s.end,
-        yards: s.end ? distYd(s.pos, s.end) : null, estimated: shot === hole.shots.length && hole.log.lastIndexOf('holed') > hole.log.lastIndexOf('shot') });
+        yards: s.pos && s.end ? distYd(s.pos, s.end) : null, estimated: shot === hole.shots.length && hole.log.lastIndexOf('holed') > hole.log.lastIndexOf('shot') });
     } else if (action === 'putt') {
       const start = hole.puttStarts?.[putt];
       entries.push({ kind: 'putt', label: `Putter · putt ${++putt}`, position: start?.pos ?? null, end: null,
