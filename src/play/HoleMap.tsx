@@ -7,6 +7,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import MapGL, { Layer, Marker, Source, type MapRef, type StyleSpecification } from 'react-map-gl/maplibre';
 import { bearing, bounds, distM, distYd, midpoint, offset, type LngLat } from '../lib/geo';
 import type { Hole } from '../schemas/course';
+import { snapTargetToPin } from '../lib/target';
 
 setWorkerUrl(workerUrl);
 
@@ -61,9 +62,17 @@ const circleF = (c: LngLat, m: number): Feature => ({ type: 'Feature', propertie
 
 export function HoleMap(p: Props) {
   const map = useRef<MapRef>(null);
+  const targetDragSnapped = useRef(false);
   const [ready, setReady] = useState(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const { hole } = p;
+  const targetAtPin = !!p.target && p.target[0] === p.pin[0] && p.target[1] === p.pin[1];
+  const dragTarget = (position: LngLat) => {
+    if (!map.current) return position;
+    const result = snapTargetToPin(position, p.pin, point => map.current!.project(point), targetDragSnapped.current);
+    targetDragSnapped.current = result.snapped;
+    return result.position;
+  };
   useEffect(() => {
     if (!ready || !map.current || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(([entry]) => {
@@ -162,11 +171,19 @@ export function HoleMap(p: Props) {
         </Marker>
       ))}
       {p.target && (
-        <Marker longitude={p.target[0]} latitude={p.target[1]} draggable={!!p.onTargetMove}
-          onDrag={(e) => p.onTargetMove?.([e.lngLat.lng, e.lngLat.lat])}
-          onDragEnd={(e) => p.onTargetMove?.([e.lngLat.lng, e.lngLat.lat])}
+        <Marker longitude={p.target[0]} latitude={p.target[1]} draggable={!!p.onTargetMove} style={{ zIndex: 5 }}
+          onDragStart={() => { targetDragSnapped.current = targetAtPin; }}
+          onDrag={(e) => {
+            const position = dragTarget([e.lngLat.lng, e.lngLat.lat]);
+            if (targetDragSnapped.current) e.target.setLngLat(position);
+            p.onTargetMove?.(position);
+          }}
+          onDragEnd={(e) => {
+            const position = dragTarget([e.lngLat.lng, e.lngLat.lat]);
+            e.target.setLngLat(position); p.onTargetMove?.(position);
+          }}
           onClick={(e) => { e.originalEvent.stopPropagation(); p.onClearTarget(); }}>
-          <div className="dot-target" aria-label="Target (drag to move, tap to reset)"><i /></div>
+          <div className="dot-target" style={{ borderColor: targetAtPin ? '#d9e8cd' : undefined }} aria-label={targetAtPin ? 'Target snapped to flag (drag to move, tap to reset)' : 'Target (drag to move, tap to reset)'}><i /></div>
         </Marker>
       )}
       {p.target && !p.review && !p.editing && ([[p.from, p.target], [p.target, p.pin]] as [LngLat, LngLat][]).map(([start, end], i) => {
