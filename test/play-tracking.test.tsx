@@ -21,7 +21,7 @@ vi.mock('../src/lib/store', async () => {
     useStore: (select: (s: typeof f.state) => unknown) => useSyncExternalStore(cb => { f.listeners.add(cb); return () => f.listeners.delete(cb); }, () => select(f.state)),
     getState: () => f.state,
     saveRound: (r: Round) => { f.state = { ...f.state, rounds: { ...f.state.rounds, [r.id]: r } }; f.listeners.forEach(cb => cb()); },
-    sync: retry, setActive: vi.fn(),
+    sync: retry, setActive: vi.fn(), deleteRound: vi.fn(),
   };
 });
 vi.mock('../src/play/useGeolocation', () => ({ useGeolocation: () => ({ fix: f.fix, error: f.fix ? null : 'denied', settledMs: 3000, inject: vi.fn() }), useWakeLock: vi.fn() }));
@@ -34,6 +34,7 @@ vi.mock('../src/play/HoleMap', () => ({ HoleMap: (p: ComponentProps<typeof HoleM
 } }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 import { Play } from '../src/play/Play';
+import { RoundDetail } from '../src/golf/RoundDetail';
 
 const course = getCourse('clearview-park')!, hole = course.holes[0];
 let id: string, clock: number;
@@ -70,17 +71,25 @@ describe('explicit tracking on the course', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start shot/ }));
     expect(current().holes[1].pendingShot).toBeUndefined();
   });
-  it('finishes a tracked chip before opening putts, supports six putts, and preserves the finish', () => {
+  it('saves a chip explicitly, enters putts through the club button, and supports six putts', () => {
+    f.state.bag.clubs = f.state.bag.clubs.filter(c => c.id !== 'pt'); // Putting stays available with a custom bag.
     fixAt(offset(hole.green.center, 180, 20));
     const view = render(<Play roundId={id} />);
     fireEvent.click(screen.getByRole('button', { name: /Start shot/ }));
     advance(); fixAt(hole.green.center); view.rerender(<Play roundId={id} />);
     expect(screen.getByRole('button', { name: /Save here/ })).toBeTruthy();
     expect(f.map.view).toBe('hole');
-    fireEvent.click(screen.getByRole('button', { name: /shot here and enter putts/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Choose club/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Putter, enter putts' }));
+    expect(current().holes[1].pendingShot).toBeTruthy();
+    expect(current().holes[1].shots).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Close sheet' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save here/ }));
     expect(current().holes[1].shots).toHaveLength(1);
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Putt count' }), { target: { value: '6' } });
-    advance(); fireEvent.click(screen.getByRole('button', { name: /Finish hole.*7 strokes/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Choose club/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Putter, enter putts' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Edit putt count' }), { target: { value: '6' } });
+    advance(); fireEvent.click(screen.getByRole('button', { name: 'Finish hole' }));
     expect(current().holes[1]).toMatchObject({ putts: 6, completed: true });
     expect(current().holes[1].shots[0].end).toEqual(hole.green.center);
     expect(current().current).toBe(2);
@@ -93,16 +102,25 @@ describe('explicit tracking on the course', () => {
     advance(); fireEvent.click(screen.getByRole('button', { name: /Save here/ }));
     expect(current().holes[1].shots[0]).toMatchObject({ pos: null, end: null, origin: 'manual' });
     expect(holeScore(current().holes[1])).toBe(1);
-    expect(screen.getByRole('button', { name: 'Edit hole 1 shots' })).toBeTruthy();
+    expect(screen.queryByText(/Shot saved.*Edit/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hole 1, scorecard' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit hole 1' }));
+    expect(screen.getByRole('button', { name: 'Edit shot 1, Driver' })).toBeTruthy();
   });
-  it('adds a suggested missed shot in one tap and starts the next at the current position', () => {
+  it('opens a missed shot in the same editor and lets the club change before saving', () => {
     const tee = hole.tees![current().teeId].pos;
     fixAt(offset(tee, 0, 90));
     render(<Play roundId={id} />);
-    fireEvent.click(screen.getByRole('button', { name: /Add missed .*shot/ }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(current().holes[1].shots[0]).toMatchObject({ pos: tee, end: f.fix!.pos, origin: 'recovered' });
-    expect(screen.queryByRole('button', { name: /Add missed .*shot/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Edit missed .*shot/ }));
+    expect(screen.getByRole('dialog', { name: 'Edit hole 1' })).toBeTruthy();
+    expect(current().holes[1]).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Change shot club' }));
+    fireEvent.click(screen.getByRole('button', { name: 'LW, stock 75 yards' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(current().holes[1].shots[0]).toMatchObject({ club: 'lw', pos: tee, end: f.fix!.pos, origin: 'recovered' });
+    expect(screen.queryByRole('button', { name: /Edit missed .*shot/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Start shot/ }));
+    expect(current().holes[1].pendingShot).toBeUndefined();
     advance(); fireEvent.click(screen.getByRole('button', { name: /Start shot/ }));
     expect(current().holes[1].pendingShot!.pos).toEqual(f.fix!.pos);
     expect(current().holes[1].shots).toHaveLength(1);
@@ -115,7 +133,7 @@ describe('explicit tracking on the course', () => {
     render(<Play roundId={id} />);
     fireEvent.click(screen.getByRole('button', { name: /Hole 2.*scorecard/ }));
     fireEvent.click(screen.getByRole('button', { name: /^Hole 1, 8$/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Shot 1 ·/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit shot 1, Driver' })[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Move start on map' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(current().holes[1].shots[0].pos).not.toEqual(tee);
@@ -127,8 +145,10 @@ describe('explicit tracking on the course', () => {
   it('rejects an editor save if the same hole changed during editing', () => {
     f.fix = null;
     render(<Play roundId={id} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit hole 1 shots' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hole 1, scorecard' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit hole 1' }));
     fireEvent.click(screen.getByRole('button', { name: '+ Add shot' }));
+    expect(screen.getByRole('button', { name: 'All shots' })).toBeTruthy(); // Missing GPS still has a route back to the overview.
     act(() => { f.state = { ...f.state, rounds: { [id]: { ...current(), holes: { 1: { ...emptyHole(), penalties: 1, log: ['pen'] } } } } }; f.listeners.forEach(cb => cb()); });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('alert').textContent).toMatch(/This hole changed/);
@@ -157,7 +177,7 @@ describe('explicit tracking on the course', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Place ball stop' }));
     fireEvent.click(screen.getByRole('button', { name: 'Undo last ball stop' }));
     fireEvent.click(screen.getByRole('button', { name: 'Place ball stop' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done placing stops' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review shots' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     const shots = current().holes[1].shots;
     expect(shots).toHaveLength(3);
@@ -167,5 +187,31 @@ describe('explicit tracking on the course', () => {
     expect(shots[2].endAcc).toBe(3);
     expect(shots.every(s => s.origin === 'recovered')).toBe(true);
     expect(holeScore(current().holes[1])).toBe(3);
+  });
+  it('keeps tracking and shot editing to two primary buttons with a single-line save distance', () => {
+    const view = render(<Play roundId={id} />);
+    const bar = view.container.querySelector('[data-tracking-bar]')!;
+    expect(within(bar as HTMLElement).getAllByRole('button')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /Save.*putts|Shot saved/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Start shot/ }));
+    advance(); fixAt(offset(f.fix!.pos, 0, 96 / 1.0936133)); view.rerender(<Play roundId={id} />);
+    const save = screen.getByRole('button', { name: /Save here.*Tracking/ });
+    expect(save.textContent).toBe('Save here · 96 yd');
+    expect(save.querySelector('br')).toBeNull();
+    expect(view.container.querySelector('[data-tracking-bar]')!.querySelectorAll('button')).toHaveLength(2);
+  });
+  it('opens a finished round directly in the same editable map and club/save row', async () => {
+    const pos = hole.tees![current().teeId].pos;
+    f.state.rounds[id] = { ...current(), done: true, current: 8, holes: { 1: { ...emptyHole(), completed: true, putts: 6, shots: [{ id: 'old', club: 'dr', pos, end: hole.green.center, acc: 3, t: clock, mishit: false }], log: ['shot', 'putt', 'putt', 'putt', 'putt', 'putt', 'putt'] } } };
+    const view = render(<RoundDetail id={id} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit hole 1 · map & shots' }));
+    await screen.findByRole('dialog', { name: 'Edit hole 1' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit shot 1, Driver' })[0]);
+    expect(view.container.querySelector('[data-editor-bar]')!.querySelectorAll('button')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Change shot club' }));
+    fireEvent.click(screen.getByRole('button', { name: 'PW, stock 125 yards' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(current()).toMatchObject({ done: true, current: 8, holes: { 1: { completed: true, putts: 6 } } });
+    expect(current().holes[1].shots[0].club).toBe('pw');
   });
 });

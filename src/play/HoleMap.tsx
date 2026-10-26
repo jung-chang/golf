@@ -44,7 +44,7 @@ type Props = {
   view?: 'hole' | 'green'; // the whole hole from you, or zoomed on the green
   padBottom?: number; // px hidden under the bottom card
   hazards?: { pos: LngLat; text: string; type: 'bunker' | 'water' }[];
-  shotTags?: { pos: LngLat; text: string; shotId?: string; actionLabel?: string }[];
+  shotTags?: { pos: LngLat; text: string; shotId?: string; actionLabel?: string; offset?: [number, number] }[];
   onTargetMove?: (p: LngLat) => void;
   pinCallout?: React.ReactNode; // yardages drawn beside the pin (front / center / back)
   padTop?: number; // px kept clear at the top (hole label, location banner)
@@ -99,7 +99,7 @@ export function HoleMap(p: Props) {
       : p.view === 'green' ? [...green, offset(g, bearing(p.from, g), 12), offset(g, bearing(p.from, g) + 180, 12)]
       : [p.from, ...green, offset(g, bearing(p.from, g), 15)];
     m.resize();
-    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), maxZoom: p.focusPoints ? 19 : 21, padding: { top: p.review ? (p.padBottom ? 96 : 65) : p.padTop ?? 130, bottom: Math.min((p.padBottom ?? 0) + 80, m.getContainer().clientHeight - 180), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
+    m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), maxZoom: 21, padding: { top: p.review ? (p.padBottom ? 96 : 65) : p.padTop ?? 130, bottom: Math.min((p.padBottom ?? 0) + 80, m.getContainer().clientHeight - 180), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
     // Only on hole change / view change / explicit recenter, not on every GPS tick.
   }, [ready, hole, p.recenter, p.view, p.padBottom, p.padTop, p.review, !!p.focusPoints, moved, size.width, size.height]);
 
@@ -155,7 +155,7 @@ export function HoleMap(p: Props) {
         <div role="img" aria-label="Saved stroke position" className="rounded-full border-2 border-white bg-orange-soft px-2 py-1 text-xs font-bold text-orange-strong shadow-md">Saved stroke</div>
       </Marker>}
       {p.shotTags?.map((t, i) => (
-        <Marker key={`st${i}`} longitude={t.pos[0]} latitude={t.pos[1]} anchor={t.shotId === 'suggestion' ? 'center' : 'left'} offset={[-6, 0]}>
+        <Marker key={`st${i}`} longitude={t.pos[0]} latitude={t.pos[1]} anchor={t.shotId === 'suggestion' || t.offset ? 'center' : 'left'} offset={t.offset ?? [-6, 0]}>
           {p.onSelectShot && t.shotId ? <button type="button" className={`min-h-11 max-w-[260px] rounded-full border px-3 text-xs font-semibold shadow-md ${t.shotId === 'suggestion' ? 'border-[#f4cc85] bg-[#2c2417]/95 text-[#f4cc85]' : 'border-white/70 bg-black/80 text-white'}`}
             aria-label={t.actionLabel ?? `Edit ${t.text}`} onClick={e => { e.stopPropagation(); p.onSelectShot!(t.shotId!); }}>{t.text}</button>
             : <div className="shot-tag"><i />{t.text}</div>}
@@ -180,19 +180,20 @@ export function HoleMap(p: Props) {
       ))}
       {p.pinCallout && <Marker longitude={p.pin[0]} latitude={p.pin[1]} anchor="left" offset={[24, 0]} style={{ pointerEvents: 'none' }}>{p.pinCallout}</Marker>}
       {p.editing && (['pos', 'end'] as const).map(key => {
-        const position = key === 'pos' ? p.editing!.start : p.editing!.end;
-        if (!position) return null;
-        return <Marker key={key} longitude={position[0]} latitude={position[1]} draggable
+        const recorded = key === 'pos' ? p.editing!.start : p.editing!.end;
+        const position = recorded ?? (key === 'pos' ? p.from : p.pin);
+        const close = distM(p.editing!.start ?? p.from, p.editing!.end ?? p.pin) < 6;
+        return <Marker key={key} longitude={position[0]} latitude={position[1]} offset={close ? [key === 'pos' ? -28 : 28, 0] : [0, 0]} draggable
           onClick={e => { e.originalEvent.stopPropagation(); p.editing!.onPick(key); }}
           onDragEnd={e => p.editing!.onMove(key, [e.lngLat.lng, e.lngLat.lat])}>
-          <button type="button" aria-label={`Move shot ${key === 'pos' ? 'start' : 'finish'}`} aria-pressed={p.editing!.active === key}
+          <button type="button" aria-label={`${recorded ? 'Move' : 'Set'} shot ${key === 'pos' ? 'start' : 'finish'}`} aria-pressed={p.editing!.active === key}
             className="grid size-11 place-items-center rounded-full border-[3px] border-white bg-[#ffb52e] text-[11px] font-bold text-[#2b1d05] shadow-lg outline-offset-4 aria-pressed:outline-2 aria-pressed:outline-[#ffb52e]"
             onKeyDown={e => {
               const directions: Record<string, number> = { ArrowUp: 0, ArrowRight: 90, ArrowDown: 180, ArrowLeft: 270 };
               if (!(e.key in directions)) return;
               e.preventDefault(); e.stopPropagation();
               p.editing!.onMove(key, offset(position, bearing(p.from, p.pin) + directions[e.key], 0.9144));
-            }}>{key === 'pos' ? 'Start' : 'Finish'}</button>
+            }}>{recorded ? '' : 'Set '}{key === 'pos' ? 'Start' : 'Finish'}</button>
         </Marker>;
       })}
       <Marker
