@@ -5,7 +5,7 @@ import { setWorkerUrl } from 'maplibre-gl';
 // let Vite build the worker as its own entry and hand MapLibre the URL.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import MapGL, { Layer, Marker, Source, type MapRef, type StyleSpecification } from 'react-map-gl/maplibre';
-import { bearing, bounds, distM, midpoint, offset, type LngLat } from '../lib/geo';
+import { bearing, bounds, distM, distYd, midpoint, offset, type LngLat } from '../lib/geo';
 import type { Hole } from '../schemas/course';
 
 setWorkerUrl(workerUrl);
@@ -163,11 +163,18 @@ export function HoleMap(p: Props) {
       ))}
       {p.target && (
         <Marker longitude={p.target[0]} latitude={p.target[1]} draggable={!!p.onTargetMove}
+          onDrag={(e) => p.onTargetMove?.([e.lngLat.lng, e.lngLat.lat])}
           onDragEnd={(e) => p.onTargetMove?.([e.lngLat.lng, e.lngLat.lat])}
           onClick={(e) => { e.originalEvent.stopPropagation(); p.onClearTarget(); }}>
           <div className="dot-target" aria-label="Target (drag to move, tap to reset)"><i /></div>
         </Marker>
       )}
+      {p.target && !p.review && !p.editing && ([[p.from, p.target], [p.target, p.pin]] as [LngLat, LngLat][]).map(([start, end], i) => {
+        const pos = midpoint(start, end), yards = Math.round(distYd(start, end));
+        return <Marker key={`target-distance-${i}`} longitude={pos[0]} latitude={pos[1]} anchor="center" style={{ pointerEvents: 'none' }}>
+          <div role="img" aria-label={`${i === 0 ? 'To target' : 'Target to pin'}: ${yards} yards`} className="rounded-lg border border-white/80 bg-black/80 px-2 py-1 text-[13px] leading-none font-semibold whitespace-nowrap text-white tabular-nums shadow-md">{yards} yd</div>
+        </Marker>;
+      })}
       {p.hazards?.map((h, i) => (
         <Marker key={`hz${i}`} longitude={h.pos[0]} latitude={h.pos[1]}>
           <div className={`maplabel hazard-${h.type}`}>{h.text}</div>
