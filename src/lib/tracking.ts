@@ -78,16 +78,26 @@ export function recoveryStart(h: HoleState, hole: Hole, teeId: string): Recovery
   return { start: hole.tees?.[teeId]?.pos ?? null, source: hole.tees?.[teeId] ? 'tee' : 'unknown', sourceShotId: null, sourceAcc: 8 };
 }
 export type RecoverySuggestion = Recovery & { club: string; yards: number; finish: ShotFix };
-export function suggestRecovery(h: HoleState, hole: Hole, teeId: string, fix: ShotFix | null, bag: Bag, settledMs: number, now = Date.now()): RecoverySuggestion | null {
+export type RecoveryGap = RecoverySuggestion & { mayBeMultiple: boolean };
+export function recoveryGap(h: HoleState, hole: Hole, teeId: string, fix: ShotFix | null, bag: Bag, settledMs: number, now = Date.now()): RecoveryGap | null {
   if (h.pendingShot || h.completed || h.putts || !validFix(fix, now) || !Number.isFinite(settledMs) || settledMs < 2_000) return null;
   const start = recoveryStart(h, hole, teeId);
   if (!start.start || start.sourceAcc == null || start.sourceAcc > 15) return null;
   const yards = distYd(start.start, fix.pos);
   const clubs = bag.clubs.filter(c => c.on && c.id !== PUTTER && c.stock != null && Number.isFinite(c.stock) && c.stock > 0);
-  if (!clubs.length || yards <= Math.max(20, 2 * (start.sourceAcc + fix.acc) * M_TO_YD)
-    || yards > Math.max(...clubs.map(c => c.stock!)) * 1.35) return null;
+  if (!clubs.length || yards <= Math.max(20, 2 * (start.sourceAcc + fix.acc) * M_TO_YD)) return null;
   const club = clubs.reduce((a, b) => Math.abs(b.stock! - yards) < Math.abs(a.stock! - yards) ? b : a);
-  return { ...start, club: club.id, yards: Math.round(yards), finish: structuredClone(fix) };
+  return { ...start, club: club.id, yards: Math.round(yards), finish: structuredClone(fix), mayBeMultiple: yards > Math.max(...clubs.map(c => c.stock!)) * 1.35 };
+}
+export function suggestRecovery(h: HoleState, hole: Hole, teeId: string, fix: ShotFix | null, bag: Bag, settledMs: number, now = Date.now()): RecoverySuggestion | null {
+  const gap = recoveryGap(h, hole, teeId, fix, bag, settledMs, now);
+  return gap && !gap.mayBeMultiple ? gap : null;
+}
+export function stockClubFor(start: LngLat | null, end: LngLat | null, bag: Bag): string | null {
+  if (!start || !end) return null;
+  const yards = distYd(start, end);
+  const clubs = bag.clubs.filter(c => c.on && c.id !== PUTTER && c.stock != null);
+  return clubs.length ? clubs.reduce((a, b) => Math.abs(b.stock! - yards) < Math.abs(a.stock! - yards) ? b : a).id : null;
 }
 export function addRecoveredShot(r: Round, suggestion: RecoverySuggestion, hole: Hole, now = Date.now()): Round {
   const h = r.holes[r.current] ?? emptyHole();
@@ -123,4 +133,15 @@ export function deleteEditedShot(h: HoleState, id: string): HoleState {
 export function commitHoleEdit(r: Round, holeNo: number, expected: HoleState, draft: HoleState): Round {
   if (JSON.stringify(r.holes[holeNo] ?? emptyHole()) !== JSON.stringify(expected)) throw new Error('This hole changed. Close the editor and reopen it before saving.');
   return editHole(r, h => Object.assign(h, draft), holeNo);
+}
+// Split only the selected gap at a remembered ball stop. These inferred clubs
+// never train stock distances, and the draft is saved only by the editor.
+export function splitEditedShot(h: HoleState, holeNo: number, id: string, stop: LngLat, bag: Bag): HoleState {
+  const index = h.shots.findIndex(s => s.id === id), shot = h.shots[index];
+  if (!shot?.pos || !shot.end || distYd(shot.pos, stop) < 1 || distYd(stop, shot.end) < 1) throw new Error('Place the ball stop between the start and finish.');
+  const n = insertEditedShot(h, holeNo, index + 1, stockClubFor(stop, shot.end, bag) ?? shot.club);
+  n.shots[index] = { ...n.shots[index], end: stop, endAcc: null, endT: undefined,
+    club: stockClubFor(shot.pos, stop, bag) ?? shot.club, origin: 'recovered' };
+  n.shots[index + 1] = { ...n.shots[index + 1], pos: stop, end: shot.end, endAcc: shot.endAcc, endT: shot.endT, origin: 'recovered', startSource: 'manual' };
+  return n;
 }

@@ -97,6 +97,24 @@ describe('GPS recovery', () => {
   });
 });
 describe('editing saved holes', () => {
+  it('splits a missed gap repeatedly, suggests each club, and preserves other strokes and putts', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(100000);
+    const initial = completeShot().holes[1];
+    let h = T.insertEditedShot(initial, 1, 1, 'dr');
+    h.shots[1].pos = fairway; h.shots[1].end = offset(fairway, 90, 280);
+    h.putts = 6; h.completed = true;
+    const stop1 = offset(fairway, 90, 100), stop2 = offset(fairway, 90, 200);
+    h = T.splitEditedShot(h, 1, h.shots[1].id!, stop1, defaultBag());
+    h = T.splitEditedShot(h, 1, h.shots[2].id!, stop2, defaultBag());
+    expect(h.shots).toHaveLength(4);
+    expect(h.shots[0]).toEqual(initial.shots[0]);
+    expect(h.shots[1].club).toBe(T.stockClubFor(fairway, stop1, defaultBag()));
+    expect(h.shots[2].pos).toEqual(stop1); expect(h.shots[2].end).toEqual(stop2);
+    expect(h.shots[3].pos).toEqual(stop2);
+    expect(h.putts).toBe(6); expect(h.completed).toBe(true);
+    expect(h.log.filter(op => op === 'shot')).toHaveLength(4);
+    expect(() => T.splitEditedShot(h, 1, h.shots[1].id!, fairway, defaultBag())).toThrow();
+  });
   it('retains older imported shots and putts when their empty log is first edited', () => {
     vi.spyOn(Date, 'now').mockReturnValue(100000);
     const old = { ...completeShot().holes[1], log: [], putts: 6, penalties: 1 };

@@ -44,14 +44,13 @@ type Props = {
   view?: 'hole' | 'green'; // the whole hole from you, or zoomed on the green
   padBottom?: number; // px hidden under the bottom card
   hazards?: { pos: LngLat; text: string; type: 'bunker' | 'water' }[];
-  shotTags?: { pos: LngLat; text: string; shotId?: string }[];
+  shotTags?: { pos: LngLat; text: string; shotId?: string; actionLabel?: string }[];
   onTargetMove?: (p: LngLat) => void;
   pinCallout?: React.ReactNode; // yardages drawn beside the pin (front / center / back)
   padTop?: number; // px kept clear at the top (hole label, location banner)
   onTap: (p: LngLat) => void;
   onClearTarget: () => void;
   onPinMove: (p: LngLat) => void;
-  onLongPress?: (p: LngLat) => void;
 };
 
 const fc = (features: Feature[]): FeatureCollection => ({ type: 'FeatureCollection', features });
@@ -63,7 +62,17 @@ const circleF = (c: LngLat, m: number): Feature => ({ type: 'Feature', propertie
 export function HoleMap(p: Props) {
   const map = useRef<MapRef>(null);
   const [ready, setReady] = useState(false);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   const { hole } = p;
+  useEffect(() => {
+    if (!ready || !map.current || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setSize(old => old.width === width && old.height === height ? old : { width, height });
+    });
+    observer.observe(map.current.getContainer());
+    return () => observer.disconnect();
+  }, [ready]);
 
   const outlines = useMemo(() => fc([
     ...(hole.features ?? []).map((f) => ringF(f.polygon, f.type)),
@@ -92,7 +101,7 @@ export function HoleMap(p: Props) {
     m.resize();
     m.fitBounds(bounds(pts), { bearing: bearing(p.from, g), maxZoom: p.focusPoints ? 19 : 21, padding: { top: p.review ? (p.padBottom ? 96 : 65) : p.padTop ?? 130, bottom: Math.min((p.padBottom ?? 0) + 80, m.getContainer().clientHeight - 180), left: 56, right: 56 }, duration: p.review ? 0 : 400 });
     // Only on hole change / view change / explicit recenter, not on every GPS tick.
-  }, [ready, hole, p.recenter, p.view, p.padBottom, p.padTop, p.review, moved]);
+  }, [ready, hole, p.recenter, p.view, p.padBottom, p.padTop, p.review, !!p.focusPoints, moved, size.width, size.height]);
 
   return (
     <MapGL
@@ -104,10 +113,9 @@ export function HoleMap(p: Props) {
       touchPitch={false}
       dragRotate={false}
       touchZoomRotate={{ around: 'center' }}
-      attributionControl={{ compact: true, customAttribution: 'Course © OpenStreetMap contributors' }}
+      attributionControl={false}
       onLoad={(e) => {
         e.target.touchZoomRotate.disableRotation();
-        e.target.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
         setReady(true);
       }}
       interactiveLayerIds={p.onSelectShot ? ['shot-hit'] : undefined}
@@ -117,8 +125,10 @@ export function HoleMap(p: Props) {
         if (id && p.onSelectShot) return p.onSelectShot(String(id));
         if (!p.review) p.onTap([e.lngLat.lng, e.lngLat.lat]);
       }}
-      onContextMenu={(e) => p.onLongPress?.([e.lngLat.lng, e.lngLat.lat])}
     >
+      <div aria-label="Map credits" className="absolute inset-x-0 bottom-0 bg-black/65 px-1 py-px text-center text-[8px] leading-[10px] text-white/80">
+        Imagery © Esri, Maxar, Earthstar Geographics · Course © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">OpenStreetMap</a>
+      </div>
       <Source id="hole" type="geojson" data={outlines}>
         <Layer id="outlines" type="line" paint={{
           'line-color': ['match', ['get', 'type'], 'bunker', '#f3e3b0', 'water', '#7cc4ff', 'green', '#b6ff8a', 'rgba(255,255,255,0.35)'],
@@ -145,9 +155,9 @@ export function HoleMap(p: Props) {
         <div role="img" aria-label="Saved stroke position" className="rounded-full border-2 border-white bg-orange-soft px-2 py-1 text-xs font-bold text-orange-strong shadow-md">Saved stroke</div>
       </Marker>}
       {p.shotTags?.map((t, i) => (
-        <Marker key={`st${i}`} longitude={t.pos[0]} latitude={t.pos[1]} anchor="left" offset={[-6, 0]}>
-          {p.onSelectShot && t.shotId ? <button type="button" className="min-h-11 rounded-full border-2 border-white bg-black/80 px-3 text-xs font-semibold text-white shadow-md"
-            aria-label={`Edit ${t.text}`} onClick={e => { e.stopPropagation(); p.onSelectShot!(t.shotId!); }}>{t.text}</button>
+        <Marker key={`st${i}`} longitude={t.pos[0]} latitude={t.pos[1]} anchor={t.shotId === 'suggestion' ? 'center' : 'left'} offset={[-6, 0]}>
+          {p.onSelectShot && t.shotId ? <button type="button" className={`min-h-11 max-w-[260px] rounded-full border px-3 text-xs font-semibold shadow-md ${t.shotId === 'suggestion' ? 'border-[#f4cc85] bg-[#2c2417]/95 text-[#f4cc85]' : 'border-white/70 bg-black/80 text-white'}`}
+            aria-label={t.actionLabel ?? `Edit ${t.text}`} onClick={e => { e.stopPropagation(); p.onSelectShot!(t.shotId!); }}>{t.text}</button>
             : <div className="shot-tag"><i />{t.text}</div>}
         </Marker>
       ))}

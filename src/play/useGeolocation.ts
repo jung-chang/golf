@@ -32,7 +32,6 @@ export function useGeolocation() {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (new URLSearchParams(location.search).has('sim')) return;
     if (!navigator.geolocation) { setError('No GPS on this device'); return; }
     let id: number;
     const watch = () => {
@@ -47,7 +46,7 @@ export function useGeolocation() {
     watch(); document.addEventListener('visibilitychange', resume);
     return () => { navigator.geolocation.clearWatch(id); document.removeEventListener('visibilitychange', resume); };
   }, [push, clear]);
-  return { fix, error, inject: push, settledMs: fix && settled.current ? Math.max(0, now - settled.current.since) : 0 };
+  return { fix, error, settledMs: fix && settled.current ? Math.max(0, now - settled.current.since) : 0 };
 }
 export function useWakeLock() {
   useEffect(() => {

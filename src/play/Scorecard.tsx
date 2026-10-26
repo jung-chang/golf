@@ -12,8 +12,9 @@ const counted = (round: Round, n: number) => {
   return h && holeScore(h) > 0 && (h.completed || n !== round.current) ? holeScore(h) : null;
 };
 
-export function Scorecard({ course, round, open, onOpenChange, onPick }: {
+export function Scorecard({ course, round, open, onOpenChange, onPick, children }: {
   course: Course; round: Round; open: boolean; onOpenChange: (o: boolean) => void; onPick: (hole: number) => void;
+  children?: React.ReactNode;
 }) {
   const nines = [course.holes.slice(0, 9), course.holes.slice(9)].filter((n) => n.length);
   const sum = (holes: Course['holes']) => {
@@ -68,6 +69,7 @@ export function Scorecard({ course, round, open, onOpenChange, onPick }: {
             );
           })}
         </div>
+        {children}
       </DrawerContent>
     </Drawer>
   );

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { defaultBag } from '../src/lib/clubs';
 import { getCourse } from '../src/lib/courses';
 import { emptyHole, holeScore, newRound } from '../src/lib/round';
-import { offset } from '../src/lib/geo';
+import { bearing, offset } from '../src/lib/geo';
 import { Round } from '../src/schemas/round';
 import type { HoleMap } from '../src/play/HoleMap';
 import type { Fix } from '../src/play/useGeolocation';
@@ -27,8 +27,9 @@ vi.mock('../src/lib/store', async () => {
 vi.mock('../src/play/useGeolocation', () => ({ useGeolocation: () => ({ fix: f.fix, error: f.fix ? null : 'denied', settledMs: 3000, inject: vi.fn() }), useWakeLock: vi.fn() }));
 vi.mock('../src/play/HoleMap', () => ({ HoleMap: (p: ComponentProps<typeof HoleMap>) => {
   f.map = p;
-  return <div aria-label="Course map">{p.pinCallout}{p.shotTags?.map((t, i) => <button key={i} onClick={() => p.onSelectShot?.(t.shotId!)}>{t.text}</button>)}
+  return <div aria-label="Course map">{p.pinCallout}{p.shotTags?.map((t, i) => <button key={i} aria-label={t.actionLabel} onClick={() => p.onSelectShot?.(t.shotId!)}>{t.text}</button>)}
     {p.editing && <button onClick={() => p.editing!.onMove('pos', offset(p.from, 90, 10))}>Move start on map</button>}
+    {p.editing && <button onClick={() => p.onTap(offset(p.from, bearing(p.from, p.pin), 70))}>Place ball stop</button>}
   </div>;
 } }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
@@ -92,7 +93,7 @@ describe('explicit tracking on the course', () => {
     advance(); fireEvent.click(screen.getByRole('button', { name: /Save here/ }));
     expect(current().holes[1].shots[0]).toMatchObject({ pos: null, end: null, origin: 'manual' });
     expect(holeScore(current().holes[1])).toBe(1);
-    expect(screen.getByRole('button', { name: /Edit/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit hole 1 shots' })).toBeTruthy();
   });
   it('adds a suggested missed shot in one tap and starts the next at the current position', () => {
     const tee = hole.tees![current().teeId].pos;
@@ -126,11 +127,45 @@ describe('explicit tracking on the course', () => {
   it('rejects an editor save if the same hole changed during editing', () => {
     f.fix = null;
     render(<Play roundId={id} />);
-    fireEvent.click(screen.getByRole('button', { name: /Add shot manually/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit hole 1 shots' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Add shot' }));
     act(() => { f.state = { ...f.state, rounds: { [id]: { ...current(), holes: { 1: { ...emptyHole(), penalties: 1, log: ['pen'] } } } } }; f.listeners.forEach(cb => cb()); });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('alert').textContent).toMatch(/This hole changed/);
     expect(current().holes[1].penalties).toBe(1);
     expect(current().holes[1].shots).toHaveLength(0);
+  });
+  it('keeps the top widget to three distinct navigation and scorecard buttons', () => {
+    render(<Play roundId={id} />);
+    const nav = screen.getByRole('navigation', { name: 'Hole navigation' });
+    expect(within(nav).getAllByRole('button')).toHaveLength(3);
+    expect(nav.textContent).toContain('Par 4');
+    expect(nav.textContent).not.toMatch(/thru|White tees/);
+    expect(screen.queryByRole('button', { name: /Add shot manually|Add short shot|Hole tools/ })).toBeNull();
+    expect(f.map).not.toHaveProperty('onLongPress');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous hole, 18' }));
+    expect(current().current).toBe(18);
+    fireEvent.click(screen.getByRole('button', { name: 'Next hole, 1' }));
+    expect(current().current).toBe(1);
+  });
+  it('recovers several missed shots by tapping remembered ball stops, without auto-saving a single long drive', () => {
+    fixAt(hole.green.center);
+    render(<Play roundId={id} />);
+    fireEvent.click(screen.getByRole('button', { name: /Review missing shots/ }));
+    expect(current().holes[1]).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Place ball stop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Place ball stop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo last ball stop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Place ball stop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done placing stops' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    const shots = current().holes[1].shots;
+    expect(shots).toHaveLength(3);
+    expect(shots[0].end).toEqual(shots[1].pos);
+    expect(shots[1].end).toEqual(shots[2].pos);
+    expect(shots[2].end).toEqual(hole.green.center);
+    expect(shots[2].endAcc).toBe(3);
+    expect(shots.every(s => s.origin === 'recovered')).toBe(true);
+    expect(holeScore(current().holes[1])).toBe(3);
   });
 });
